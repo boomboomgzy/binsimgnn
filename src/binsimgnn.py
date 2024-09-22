@@ -14,7 +14,6 @@ from torch_geometric.nn import (
 import torch.nn as nn
 
 
-#GCN迭代更新节点特征是否可以？
 class DirHGTConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, heads,alpha):
         super(DirHGTConv, self).__init__()
@@ -322,15 +321,15 @@ class BinSimGNNTrainer(object):
                 main_index = main_index + len(batch)
                 epoch_loss_sum = epoch_loss_sum + batch_avg_loss*len(batch) 
                 avg_loss = epoch_loss_sum/main_index
-                epochs.set_description("Epoch (Loss=%g)" % round(avg_loss, 10)) #得到当前的平均loss
+                epochs.set_description("Epoch %d (Loss=%g)" % (epoch,round(avg_loss, 10))) #得到当前的平均loss
 
             
-            print(f"\nEpoch {epoch + 1} completed, now evaluating on the validation set.")
+            print(f"\nEpoch {epoch} completed, now evaluating on the validation set.")
             metric = self.score(mode='eval')  # 验证集评估
             print(f'eval metric: {str(round(metric, 10))}')
 
             if metric < best_metric:
-                print(f"New best model found at epoch {epoch + 1} with metric {str(round(metric, 10))}. Saving model.")
+                print(f"New best model found at epoch {epoch} with metric {str(round(metric, 10))}. Saving model.")
                 best_metric=metric
                 self.save(epoch,metric)
            

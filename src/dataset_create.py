@@ -191,46 +191,46 @@ def ir_validation(ir_string):
 def load_heteroG(heteroG_file_path):
     return torch.load(heteroG_file_path)
 
-def ir2vec_command(args):
-    ll_file_path,vec_file_path=args
-
-    command=[
-        ir2vec_path,
-        '-sym',
-        '-vocab',
-        vocabulary_path,
-        '-o',
-        vec_file_path,
-        '-level',
-        'p',
-        ll_file_path
-    ]
-    subprocess.run(command)
+##def ir2vec_command(args):
+##    ll_file_path,vec_file_path=args
+##
+##    command=[
+##        ir2vec_path,
+##        '-sym',
+##        '-vocab',
+##        vocabulary_path,
+##        '-o',
+##        vec_file_path,
+##        '-level',
+##        'p',
+##        ll_file_path
+##    ]
+##    subprocess.run(command)
 
 
 #ll_file_dir为预处理过的IR所在目录
-def getIRvec(ll_file_dir,vec_dir,ir2vec_path,vocabulary_path):
-    for subdir in os.listdir(ll_file_dir): #每个subdir 分开处理 
-        vec_file_path_list=[] #保存的vector文件
-        sub_dir_path = os.path.join(ll_file_dir, subdir)
-        ll_file_path_list=[] #当前subdir下所有ll_file
-        if os.path.isdir(sub_dir_path):
-            vec_sub_dir_path=os.path.join(vec_dir,subdir)
-            os.makedirs(vec_sub_dir_path,exist_ok=True)
-            for ll_file in os.listdir(sub_dir_path):
-                ll_file_path=os.path.join(sub_dir_path,ll_file)
-                if os.path.isfile(ll_file_path):
-                    ll_file_name=os.path.splitext(os.path.basename(ll_file_path))[0]
-                    ll_file_path_list.append(ll_file_path)
-                    vec_file_path_list.append(os.path.join(vec_sub_dir_path,ll_file_name+'.vec'))
-            
-
-            tasks=[]
-            for idx,ll_file_path in enumerate(ll_file_path_list):
-               tasks.append((ll_file_path,vec_file_path_list[idx]))
-
-            with multiprocessing.Pool(processes=prop_threads) as pool:
-                pool.map(ir2vec_command,tasks)
+#def getIRvec(ll_file_dir,vec_dir,ir2vec_path,vocabulary_path):
+#    for subdir in os.listdir(ll_file_dir): #每个subdir 分开处理 
+#        vec_file_path_list=[] #保存的vector文件
+#        sub_dir_path = os.path.join(ll_file_dir, subdir)
+#        ll_file_path_list=[] #当前subdir下所有ll_file
+#        if os.path.isdir(sub_dir_path):
+#            vec_sub_dir_path=os.path.join(vec_dir,subdir)
+#            os.makedirs(vec_sub_dir_path,exist_ok=True)
+#            for ll_file in os.listdir(sub_dir_path):
+#                ll_file_path=os.path.join(sub_dir_path,ll_file)
+#                if os.path.isfile(ll_file_path):
+#                    ll_file_name=os.path.splitext(os.path.basename(ll_file_path))[0]
+#                    ll_file_path_list.append(ll_file_path)
+#                    vec_file_path_list.append(os.path.join(vec_sub_dir_path,ll_file_name+'.vec'))
+#            
+#
+#            tasks=[]
+#            for idx,ll_file_path in enumerate(ll_file_path_list):
+#               tasks.append((ll_file_path,vec_file_path_list[idx]))
+#
+#            with multiprocessing.Pool(processes=prop_threads) as pool:
+#                pool.map(ir2vec_command,tasks)
 
 
 
