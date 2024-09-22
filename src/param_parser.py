@@ -10,12 +10,12 @@ def parameter_parser():
     parser = argparse.ArgumentParser(description="Run SimGNN.")
     parser.add_argument("--debug-training-graphs",
                         nargs="?",
-                        default="/home/ruan/gzy/binsimgnn/binkit_small_heteroG_dataset/train/",
+                        default="/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset/train/",
 	                help="Folder with training graph pair jsons.")
 
     parser.add_argument("--debug-testing-graphs",
                         nargs="?",
-                        default="/home/ruan/gzy/binsimgnn/binkit_small_heteroG_dataset/test/",
+                        default="/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset/test/",
 	                help="Folder with testing graph pair jsons.")
     
     parser.add_argument("--training-graphs",
@@ -86,7 +86,7 @@ def parameter_parser():
 
     parser.add_argument("--save-dir",
                         type=str,
-                        default=r'/home/ruan/gzy/binsimgnn/model',
+                        default=r'/home/ouyangchao/binsimgnn/model',
                         help="Dir to save the trained model")
 
     parser.add_argument("--load-path",

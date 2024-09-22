@@ -354,9 +354,9 @@ def build_dataset(heteroG_save_dir,heteroG_dataset_dir):
 
 if __name__=='__main__':
 
-    debug=True
-    small_dataset=False
-    save_dir=r'/home/ruan/gzy/binsimgnn/dataset'
+    debug=False
+    small_dataset=True
+    save_dir=r'/home/ouyangchao/binsimgnn/dataset'
 
     if debug:
         ll_file_dir=os.path.join(save_dir,'test_IR')
@@ -364,7 +364,7 @@ if __name__=='__main__':
         prep_log_dir=os.path.join(save_dir,'test_invalid_IR')
         prep_save_dir=os.path.join(save_dir,'test_preprocessed_IR')
         #vec_dir=os.path.join(save_dir,'test_IR_vec')
-        heteroG_dataset_dir=r'/home/ruan/gzy/binsimgnn/debug_heteroG_dataset'
+        heteroG_dataset_dir=r'/home/ouyangchao/binsimgnn/debug_heteroG_dataset'
 
     else:
         if small_dataset:
@@ -373,7 +373,7 @@ if __name__=='__main__':
             prep_log_dir=os.path.join(save_dir,'binkit_small_invalid_IR')
             prep_save_dir=os.path.join(save_dir,'binkit_small_preprocessed_IR')
             #vec_dir=os.path.join(save_dir,'binkit_small_IR_vec')
-            heteroG_dataset_dir=r'/home/ruan/gzy/binsimgnn/binkit_small_heteroG_dataset'
+            heteroG_dataset_dir=r'/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset'
  
         else:            
             ll_file_dir=os.path.join(save_dir,'IR')
@@ -381,7 +381,7 @@ if __name__=='__main__':
             prep_log_dir=os.path.join(save_dir,'invalid_IR')
             prep_save_dir=os.path.join(save_dir,'preprocessed_IR')
             #vec_dir=os.path.join(save_dir,'IR_vec')
-            heteroG_dataset_dir=r'/home/ruan/gzy/binsimgnn/heteroG_dataset'
+            heteroG_dataset_dir=r'/home/ouyangchao/binsimgnn/heteroG_dataset'
         
     os.makedirs(heteroG_save_dir, exist_ok=True)
     os.makedirs(prep_log_dir, exist_ok=True)
@@ -389,8 +389,8 @@ if __name__=='__main__':
     #os.makedirs(vec_dir, exist_ok=True)
     os.makedirs(heteroG_dataset_dir,exist_ok=True)
 
-    #ir2vec_path=r'/home/ruan/gzy/IR2Vec/build/bin/ir2vec'
-    #vocabulary_path=r'/home/ruan/gzy/IR2Vec/vocabulary/seedEmbeddingVocab-300-llvm8.txt'
+    #ir2vec_path=r'/home/ouyangchao/IR2Vec/build/bin/ir2vec'
+    #vocabulary_path=r'/home/ouyangchao/IR2Vec/vocabulary/seedEmbeddingVocab-300-llvm8.txt'
 
 
     prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir)

@@ -2,7 +2,7 @@ import os
 import torch
 
 
-dataset_path=r'/home/ruan/gzy/binsimgnn/binkit_small_heteroG_dataset'
+dataset_path=r'/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset'
 
 def generate_new_features(data):
     inst_feature_dim=32

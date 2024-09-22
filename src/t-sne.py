@@ -13,7 +13,7 @@ def read_vector_from_file(file_path):
     return vector
 
 
-main_dir = "/home/ruan/gzy/binsimgnn/dataset/binkit_small_IR_vec"
+main_dir = "/home/ouyangchao/binsimgnn/dataset/binkit_small_IR_vec"
 
 # 用于存储所有的特征向量和对应的标签
 X = []
@@ -62,6 +62,6 @@ for i in range(X_norm.shape[0]):
 plt.xticks()
 plt.yticks()
 
-plt.savefig('/home/ruan/gzy/binsimgnn/tsne_result.png', dpi=300, bbox_inches='tight')
+plt.savefig('/home/ouyangchao/binsimgnn/tsne_result.png', dpi=300, bbox_inches='tight')
 
 plt.close()

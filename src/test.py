@@ -7,7 +7,7 @@ from dataset_create import programG2pyg
 
 import subprocess
 import time
-def getIRvec(ir2vec_path,ir_file_path,save_file_path,vocabulary_path='/home/ruan/gzy/IR2Vec/vocabulary/seedEmbeddingVocab-300-llvm8.txt'):
+def getIRvec(ir2vec_path,ir_file_path,save_file_path,vocabulary_path='/home/ouyangchao/IR2Vec/vocabulary/seedEmbeddingVocab-300-llvm8.txt'):
     command=[
         ir2vec_path,
         '-fa',
@@ -44,9 +44,9 @@ def cal_cossim(vec1,vec2):
 if __name__=='__main__':
 
     
-    #check_path=r'/home/ruan/gzy/binsimgnn/dataset/test_heteroG/libtasn1/libtasn1-4.19.0_clang-4.0_arm_32_O1_asn1Coding.strip.preprocessed.pth'
+    #check_path=r'/home/ouyangchao/binsimgnn/dataset/test_heteroG/libtasn1/libtasn1-4.19.0_clang-4.0_arm_32_O1_asn1Coding.strip.preprocessed.pth'
     #heteroG=torch.load(check_path)
-    ll_file_path=r'/home/ruan/gzy/binsimgnn/dataset/binkit_small_preprocessed_IR/cflow/cflow-1.7_clang-4.0_arm_32_O0_cflow.strip.preprocessed.ll'
+    ll_file_path=r'/home/ouyangchao/binsimgnn/dataset/binkit_small_preprocessed_IR/cflow/cflow-1.7_clang-4.0_arm_32_O0_cflow.strip.preprocessed.ll'
 
     with open(ll_file_path, 'r') as file:
         ir_programl=programl.from_llvm_ir(file.read())
