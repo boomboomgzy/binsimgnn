@@ -79,9 +79,11 @@ class BinSimGNN(torch.nn.Module):
         self.normalize = False
         self.convs = torch.nn.ModuleList()
 
+        self.metadata=(['data', 'inst'], [('inst', 'control', 'inst'), ('data', 'input', 'inst'), ('inst', 'output', 'data'), ('inst', 'call', 'inst')])
 
         for _ in range(self.args.num_layers):
-            conv=DirHGTConv(input_dim=-1,output_dim=self.args.hidden_dim*self.args.heads,heads=self.args.heads,alpha=0.5)
+            #conv=DirHGTConv(input_dim=-1,output_dim=self.args.hidden_dim*self.args.heads,heads=self.args.heads,alpha=0.5)
+            conv=HGTConv(in_channels=-1,out_channels=self.args.hidden_dim*self.args.heads,heads=self.args.heads,metadata=self.metadata)
             self.convs.append(conv)
 
     def calculate_histogram(self, f1_x, f2_x):
@@ -202,7 +204,7 @@ class BinSimGNNTrainer(object):
 
     def setup_model(self):
         self.model = BinSimGNN(self.args)
-        self.loss_fn = ContrastiveLoss(margin=0.01)
+        self.loss_fn = ContrastiveLoss(margin=0.1)
 
     def load_data(self):
         pass

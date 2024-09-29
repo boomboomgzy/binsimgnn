@@ -16,8 +16,57 @@ import numpy as np
 import shutil
 from pathlib import Path
 import random
+from gensim.models import Word2Vec
+import re
+from sklearn.preprocessing import normalize
 
-prop_threads=30
+prop_threads=1
+
+model = Word2Vec(vector_size=16, sg=0,window=8, min_count=1, workers=prop_threads) #参数需要做进一步实验看最好的效果
+
+
+class BatchProgramlCorpus:
+    def __init__(self, ir_programl_list):
+        self.ir_programl_list=ir_programl_list
+
+    def __iter__(self):
+        for ir_programl in self.ir_programl_list:
+                for node in ir_programl.node:
+                    if node.type==0:
+                        node_text=''
+                        if  inst_node_isvalid(node):#只收集有效inst节点的token
+                            node_text = node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
+                            node_text=normalize_inst(node_text)
+                            node.text=node_text  #node.text 修改为归一化后的full_text
+                            yield node_text.split()
+
+                    elif node.type==3:
+                        pass
+                    else:
+                        yield [node.text]
+
+
+
+def normalize_inst(inst):
+    inst=re.sub(r'@global_var_\d+', '@global_var', inst)
+    inst=re.sub(r'@\d+', '@global_var', inst)
+    inst=re.sub(r'%[\w\.\-]+', '%ID', inst)
+    inst=re.sub(r'(?<=\s)-?\d+(\.\d+)?\b', '%CONST', inst)
+    return inst
+
+def remove_metadata_comma_align(ir):
+    #delete the meta info 
+    ir=re.sub(r', ?!insn\.addr !\d+', '', ir)
+    ir=re.sub(r', align \d+','',ir)
+    return ir
+
+def inst_node_isvalid(inst_node): #该指令是否有用
+    if inst_node.features and inst_node.features.feature["full_text"].bytes_list.value :     
+        inst_node_text = inst_node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
+        if inst_node_text=='': #无用节点
+            return False
+        else:
+            return True
 
 
 
@@ -28,23 +77,20 @@ def programG2pyg(
     chunksize: Optional[int] = None,
 ) -> Union[HeteroData, Iterable[HeteroData]]:
 
-    def remove_metadata_and_comma(ir):
-        #delete the meta info 
-        pattern = r', ?!insn\.addr !\d+'
-        import re
-        return re.sub(pattern, '', ir)
 
+            
     def _run_one(graph: ProgramGraph) -> HeteroData:
-        # 4 lists, one per edge type
-        # (control,input,output,call) control:inst->inst  input:data->inst output:inst->data call:inst->inst
+        # 3 lists, one per edge type
+        # (control,input,output,#call) control:inst->inst  input:data->inst output:inst->data   call:inst->inst(舍弃)
 
-        edge_index = [[], [], [], []] 
-        edge_positions = [[], [], [], []]
+        edge_index = [[], [], []] 
+        edge_positions = [[], [], []]
         # 2 node type: data instruction
         data_nodes=[]
         inst_nodes=[]
         data_node_index_map={}
         inst_node_index_map={}
+        unvalid_inst_nodes_global_idx=[]
 
         function_dict={}
         for function in graph.function:
@@ -53,10 +99,13 @@ def programG2pyg(
 
         for global_idx,node in enumerate(graph.node):
             if node.type==0:
-                inst_nodes.append(node)
-                inst_idx=len(inst_nodes)-1
-                inst_node_index_map[str(global_idx)]=inst_idx
-                function_dict[graph.function[node.function].name]['inst'].append(inst_idx)
+                if inst_node_isvalid(node):
+                    inst_nodes.append(node)
+                    inst_idx=len(inst_nodes)-1
+                    inst_node_index_map[str(global_idx)]=inst_idx
+                    function_dict[graph.function[node.function].name]['inst'].append(inst_idx)
+                else:
+                    unvalid_inst_nodes_global_idx.append(global_idx)
             elif node.type==3:
                 pass
             else:
@@ -71,6 +120,9 @@ def programG2pyg(
             e_type=edge.flow
             source_node=edge.source
             target_node=edge.target
+            #过滤和无效inst节点有关的边
+            if (source_node in unvalid_inst_nodes_global_idx ) or (target_node in unvalid_inst_nodes_global_idx):
+                continue
             t=-1
             if e_type==0:# inst->inst
                 edge_index[0].append([inst_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
@@ -83,38 +135,15 @@ def programG2pyg(
                     edge_index[1].append([data_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
                     t=1
             else: #inst->inst
-                edge_index[3].append([inst_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
-                t=3
+                #edge_index[3].append([inst_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
+                #t=3
+                pass
             #边和position一一对应
             edge_positions[t].append(edge.position)
 
-        # Store the full text 
-        data_node_text_list = []
-        inst_node_text_list = []
-        # Store the text and full text attributes
-        for node in data_nodes:
-            node_text=''
-
-            if (
-                node.features
-                and node.features.feature["full_text"].bytes_list.value
-            ):
-                node_text = remove_metadata_and_comma(node.features.feature["full_text"].bytes_list.value[0].decode('utf-8'))
-
-            data_node_text_list.append(node_text)
-
-        for node in inst_nodes:
-            node_text=''
-
-            if (
-                node.features
-                and node.features.feature["full_text"].bytes_list.value
-            ):
-                node_text = remove_metadata_and_comma(node.features.feature["full_text"].bytes_list.value[0].decode('utf-8'))
-
-            inst_node_text_list.append(node_text)
 
         # Pass from list to tensor
+
         edge_index = [torch.tensor(ej) for ej in edge_index]
         edge_positions = [torch.tensor(edge_pos_flow_type) for edge_pos_flow_type in edge_positions]
 
@@ -122,24 +151,21 @@ def programG2pyg(
         # Create the graph structure
         hetero_graph = HeteroData()
 
-        hetero_graph['data']['text'] = data_node_text_list
-        hetero_graph['inst']['text'] = inst_node_text_list
-        inst_feature_dim=32
-        data_feature_dim=8
-        hetero_graph['inst'].x=torch.rand((len(inst_nodes), inst_feature_dim), dtype=torch.float)
-        hetero_graph['data'].x=torch.rand((len(data_nodes), data_feature_dim), dtype=torch.float)
+        
+
         # Add the adjacency lists
         hetero_graph['inst', 'control', 'inst'].edge_index = edge_index[0].T.contiguous()
         hetero_graph['data', 'input', 'inst'].edge_index = edge_index[1].T.contiguous()
         hetero_graph['inst', 'output', 'data'].edge_index = edge_index[2].T.contiguous()
-        hetero_graph['inst', 'call', 'inst'].edge_index = edge_index[3].T.contiguous()
+        #hetero_graph['inst', 'call', 'inst'].edge_index = edge_index[3].T.contiguous()
 
         # Add the edge positions
         hetero_graph['inst', 'control', 'inst'].edge_attr = edge_positions[0]
         hetero_graph['data', 'input', 'inst'].edge_attr = edge_positions[1]
         hetero_graph['inst', 'output', 'data'].edge_attr = edge_positions[2]
-        hetero_graph['inst', 'call', 'inst'].edge_attr = edge_positions[3]
+        #hetero_graph['inst', 'call', 'inst'].edge_attr = edge_positions[3]
 
+        hetero_graph.programl_graph=graph #保存这个programl图用于生成节点的特征向量
         hetero_graph.function_dict=function_dict
 
         return hetero_graph
@@ -157,6 +183,7 @@ def ir_file_preprocess(ll_file_path,log_dir,save_dir):
         ir_string=file.read()
         # 因llvm版本不一致导致的报错 暂且如此处理
         ir_string = ir_string.replace("%wide-string", "zeroinitializer")
+        ir_string = remove_metadata_comma_align(ir_string)
         ir_string = "\n".join([line for line in ir_string.splitlines() if "uselistorder" not in line])
         dir_name=os.path.basename(os.path.dirname(ll_file_path))
         ll_file_name=os.path.splitext(os.path.basename(ll_file_path))[0] #无后缀文件名
@@ -191,46 +218,32 @@ def ir_validation(ir_string):
 def load_heteroG(heteroG_file_path):
     return torch.load(heteroG_file_path)
 
-##def ir2vec_command(args):
-##    ll_file_path,vec_file_path=args
-##
-##    command=[
-##        ir2vec_path,
-##        '-sym',
-##        '-vocab',
-##        vocabulary_path,
-##        '-o',
-##        vec_file_path,
-##        '-level',
-##        'p',
-##        ll_file_path
-##    ]
-##    subprocess.run(command)
+
 
 
 #ll_file_dir为预处理过的IR所在目录
-#def getIRvec(ll_file_dir,vec_dir,ir2vec_path,vocabulary_path):
-#    for subdir in os.listdir(ll_file_dir): #每个subdir 分开处理 
-#        vec_file_path_list=[] #保存的vector文件
-#        sub_dir_path = os.path.join(ll_file_dir, subdir)
-#        ll_file_path_list=[] #当前subdir下所有ll_file
-#        if os.path.isdir(sub_dir_path):
-#            vec_sub_dir_path=os.path.join(vec_dir,subdir)
-#            os.makedirs(vec_sub_dir_path,exist_ok=True)
-#            for ll_file in os.listdir(sub_dir_path):
-#                ll_file_path=os.path.join(sub_dir_path,ll_file)
-#                if os.path.isfile(ll_file_path):
-#                    ll_file_name=os.path.splitext(os.path.basename(ll_file_path))[0]
-#                    ll_file_path_list.append(ll_file_path)
-#                    vec_file_path_list.append(os.path.join(vec_sub_dir_path,ll_file_name+'.vec'))
-#            
-#
-#            tasks=[]
-#            for idx,ll_file_path in enumerate(ll_file_path_list):
-#               tasks.append((ll_file_path,vec_file_path_list[idx]))
-#
-#            with multiprocessing.Pool(processes=prop_threads) as pool:
-#                pool.map(ir2vec_command,tasks)
+def getIRvec(ll_file_dir,vec_dir):
+    for subdir in os.listdir(ll_file_dir): #每个subdir 分开处理 
+        vec_file_path_list=[] #保存的vector文件
+        sub_dir_path = os.path.join(ll_file_dir, subdir)
+        ll_file_path_list=[] #当前subdir下所有ll_file
+        if os.path.isdir(sub_dir_path):
+            vec_sub_dir_path=os.path.join(vec_dir,subdir)
+            os.makedirs(vec_sub_dir_path,exist_ok=True)
+            for ll_file in os.listdir(sub_dir_path):
+                ll_file_path=os.path.join(sub_dir_path,ll_file)
+                if os.path.isfile(ll_file_path):
+                    ll_file_name=os.path.splitext(os.path.basename(ll_file_path))[0]
+                    ll_file_path_list.append(ll_file_path)
+                    vec_file_path_list.append(os.path.join(vec_sub_dir_path,ll_file_name+'.vec'))
+            
+
+            tasks=[]
+            for idx,ll_file_path in enumerate(ll_file_path_list):
+               tasks.append((ll_file_path,vec_file_path_list[idx]))
+
+            with multiprocessing.Pool(processes=prop_threads) as pool:
+                pool.map(ll2vec,tasks)
 
 
 
@@ -243,9 +256,10 @@ def read_vector_from_file(file_path):
 
 
 #ll_file_dir为预处理过的IR所在目录
-def ll2heteroG(ll_file_dir,heteroG_save_dir):
+def ll2heteroG(ll_file_dir,heteroG_save_dir,word2vec_file):
     
-    for subdir in os.listdir(ll_file_dir): #每个subdir 分开处理 
+    global model
+    for subdir in os.listdir(ll_file_dir): 
         heteroG_file_path_list=[] #保存的heteroG 的pth文件
         sub_dir_path = os.path.join(ll_file_dir, subdir)
         ll_file_path_list=[] #当前subdir下所有ll_file
@@ -272,10 +286,20 @@ def ll2heteroG(ll_file_dir,heteroG_save_dir):
         with ThreadPoolExecutor(max_workers=prop_threads) as executor:
             ir_programls=list(programl.from_llvm_ir(ll_ir_strings, executor=executor,chunksize=prop_threads+1))
 
+        corpus = BatchProgramlCorpus(ir_programls)
+        if len(model.wv) == 0:
+            model.build_vocab(corpus)
+        else:
+            model.build_vocab(corpus, update=True)
+        
+        model.train(corpus, total_examples=model.corpus_count, epochs=model.epochs)
+
 
         with ThreadPoolExecutor(max_workers=prop_threads) as executor:
             ir_heteroGs=list(programG2pyg(ir_programls, executor=executor,chunksize=prop_threads+1))
         
+
+
         #subdir_binname  作为图的label 如果相同则相似 否则不相似
         for idx,ir_heteroG in enumerate(ir_heteroGs):
             ll_file_path=ll_file_path_list[idx]
@@ -290,6 +314,8 @@ def ll2heteroG(ll_file_dir,heteroG_save_dir):
 
         for idx,heteroG_file_path in enumerate(heteroG_file_path_list):
             torch.save(ir_heteroGs[idx], heteroG_file_path)
+
+
 
 def prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir):
 
@@ -327,7 +353,50 @@ def collect_heteroG_files(root_dir):
                 heteroG_files.append(os.path.join(subdir, file))
     return heteroG_files
 
+def init_nodevector(heteroG_save_dir):
+    #归一化词向量
+    for word in model.wv.key_to_index:
+        model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
 
+    heteroG_files=collect_heteroG_files(heteroG_save_dir)
+    #为每个异构图初始化节点向量
+    for heteroG_file in heteroG_files:
+        heteroG=torch.load(heteroG_file)
+        programl_graph=heteroG.programl_graph
+        
+        data_nodes=[]
+        inst_nodes=[]
+        #根据node.text初始化节点特征向量
+        inst_features=[]
+        data_features=[]
+
+        for node in programl_graph.node:
+            if node.type==0:
+                if inst_node_isvalid(node):
+                    inst_nodes.append(node)
+            elif node.type==3:
+                pass
+            else:
+                data_nodes.append(node)
+
+        for node in inst_nodes:
+            inst=node.text
+            token_list=inst.split()
+            token_vectors = [model.wv[token] for token in token_list]
+            #node_vector=np.sum(token_vectors, axis=0)
+            node_vector=np.mean(token_vectors,axis=0)
+            inst_features.append(node_vector)
+
+        for node in data_nodes:
+            data=node.text
+            node_vector=model.wv[data]
+            data_features.append(node_vector)
+
+
+        heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
+        heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
+
+        torch.save(heteroG, heteroG_file)
 
 def build_dataset(heteroG_save_dir,heteroG_dataset_dir):
     
@@ -354,9 +423,14 @@ def build_dataset(heteroG_save_dir,heteroG_dataset_dir):
 
 if __name__=='__main__':
 
-    debug=False
-    small_dataset=True
+    debug=True
+    small_dataset=False
     save_dir=r'/home/ouyangchao/binsimgnn/dataset'
+    word2vec_file=r'/home/ouyangchao/binsimgnn/tokenvec.txt'
+    model_dir=r'/home/ouyangchao/binsimgnn/model'
+
+    corpus_model_path=os.path.join(model_dir,'ir_corpus.model')
+    corpus_vec_path=os.path.join(model_dir,'ir_corpus.vector')
 
     if debug:
         ll_file_dir=os.path.join(save_dir,'test_IR')
@@ -389,15 +463,16 @@ if __name__=='__main__':
     #os.makedirs(vec_dir, exist_ok=True)
     os.makedirs(heteroG_dataset_dir,exist_ok=True)
 
-    #ir2vec_path=r'/home/ouyangchao/IR2Vec/build/bin/ir2vec'
-    #vocabulary_path=r'/home/ouyangchao/IR2Vec/vocabulary/seedEmbeddingVocab-300-llvm8.txt'
-
 
     prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir)
 
-    #getIRvec(prep_save_dir,vec_dir,ir2vec_path,vocabulary_path)
+    #getIRvec(prep_save_dir,vec_dir)
 
     #ll2heteroG(prep_save_dir,heteroG_save_dir,vec_dir)
-    ll2heteroG(prep_save_dir,heteroG_save_dir)
+    ll2heteroG(prep_save_dir,heteroG_save_dir,word2vec_file)
+
+    model.save(corpus_model_path)#.model可以用于继续训练
+    model.wv.save_word2vec_format(corpus_vec_path)
+    init_nodevector(heteroG_save_dir)
 
     build_dataset(heteroG_save_dir,heteroG_dataset_dir)

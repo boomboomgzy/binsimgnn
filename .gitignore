@@ -2,3 +2,7 @@ dataset
 binkit_small_heteroG_dataset
 improve.txt
 src/test.py
+src/__pycache__
+ir2vec
+debug_heteroG_dataset
+model

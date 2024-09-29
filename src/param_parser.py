@@ -45,7 +45,7 @@ def parameter_parser():
 
     parser.add_argument("--num_layers",
                     type=int,
-                    default=3,
+                    default=2,
                 help="GCN layers num.")
 
 
@@ -56,12 +56,12 @@ def parameter_parser():
 
     parser.add_argument("--heads",
                     type=int,
-                    default=1,
+                    default=3,
                 help="attention heads")
     
     parser.add_argument("--batch-size",  #必须要偶数
                         type=int,
-                        default=2,
+                        default=4,
 	                help="Number of graph pairs per batch, must be even . Default is 4.")
 
     parser.add_argument("--bins",
@@ -76,7 +76,7 @@ def parameter_parser():
 
     parser.add_argument("--learning-rate",
                         type=float,
-                        default=0.001,
+                        default=0.005,
 	                help="Learning rate. Default is 0.001.")
 
     parser.add_argument("--weight-decay",
