@@ -59,7 +59,7 @@ def parameter_parser():
                     default=3,
                 help="attention heads")
     
-    parser.add_argument("--batch-size",  #必须要偶数
+    parser.add_argument("--batch-size",  
                         type=int,
                         default=4,
 	                help="Number of graph pairs per batch, must be even . Default is 4.")

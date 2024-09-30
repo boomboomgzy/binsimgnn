@@ -180,7 +180,7 @@ class BinSimGNN(torch.nn.Module):
     
 
 class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=1.0):
+    def __init__(self, margin=0.1):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
 
@@ -218,12 +218,12 @@ class BinSimGNNTrainer(object):
         self.valid_graphs = testing_graphs[:num_validation]
         self.testing_graphs = testing_graphs[num_validation:]
 
-        if len(self.training_graphs) % 2 != 0:
-            self.training_graphs.pop()  
-        if len(self.valid_graphs) % 2 != 0:
-            self.valid_graphs.pop()  
-        if len(self.testing_graphs) % 2 != 0:
-            self.testing_graphs.pop()  
+#        if len(self.training_graphs) % 2 != 0:
+#            self.training_graphs.pop()  
+#        if len(self.valid_graphs) % 2 != 0:
+#            self.valid_graphs.pop()  
+#        if len(self.testing_graphs) % 2 != 0:
+#            self.testing_graphs.pop()  
         
 
 
@@ -241,7 +241,9 @@ class BinSimGNNTrainer(object):
     def process_batch(self, batch):
 
         self.optimizer.zero_grad()  
-        g_pairs = [(batch[i], batch[i + 1]) for i in range(0, len(batch), 2)]
+        import itertools
+        g_pairs = list(itertools.combinations(batch, 2))
+        #g_pairs = [(batch[i], batch[i + 1]) for i in range(0, len(batch), 2)]
         
         batch_g_sim=[]
         batch_labels=[]
