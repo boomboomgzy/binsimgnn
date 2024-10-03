@@ -4,7 +4,7 @@ from binsimgnn import BinSimGNNTrainer
 import torch
 import torch.multiprocessing as mp
 import os
-
+import random
 
 def main():
     """
@@ -15,6 +15,7 @@ def main():
     tab_printer(args)
 
     trainer = BinSimGNNTrainer(args)
+    random.seed(18)
     torch.manual_seed(18)
     torch.cuda.manual_seed_all(18)
     torch.cuda.set_device(3)

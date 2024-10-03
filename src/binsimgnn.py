@@ -4,15 +4,16 @@ import random
 import numpy as np
 from tqdm import tqdm, trange
 from layers import AttentionModule, TenorNetworkModule
-from utils import calculate_loss, calculate_normalized_ged,calculate_cossim
 from torch import nn, optim
 import torch.nn.functional as F
 import datetime
 from torch_geometric.nn import (
     HGTConv,
 )
-import torch.nn as nn
-
+import itertools
+import math
+import os
+import sys
 
 class DirHGTConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, heads,alpha):
@@ -80,6 +81,7 @@ class BinSimGNN(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
 
         self.metadata=(['data', 'inst'], [('inst', 'control', 'inst'), ('data', 'input', 'inst'), ('inst', 'output', 'data'), ('inst', 'call', 'inst')])
+        #self.metadata=(['data', 'inst'], [('inst', 'control', 'inst'), ('data', 'input', 'inst'), ('inst', 'output', 'data')])
 
         for _ in range(self.args.num_layers):
             #conv=DirHGTConv(input_dim=-1,output_dim=self.args.hidden_dim*self.args.heads,heads=self.args.heads,alpha=0.5)
@@ -87,12 +89,7 @@ class BinSimGNN(torch.nn.Module):
             self.convs.append(conv)
 
     def calculate_histogram(self, f1_x, f2_x):
-        """
-        Calculate histogram from similarity matrix.
-        :param abstract_featfeatures_2: Feature matrix for graph 2.
-        :return hiures_1: Feature matrix for graph 1.
-        :param abstract_st: Histsogram of similarity scores.
-        """
+
     
         scores = torch.mm(f1_x,torch.t(f2_x)).detach()   
         scores = scores.view(-1, 1)
@@ -155,6 +152,7 @@ class BinSimGNN(torch.nn.Module):
         g1_x_dict_conv = self.convolutional_pass(g1_x_dict,g1_edge_index_dict)
         g2_x_dict_conv = self.convolutional_pass(g2_x_dict,g2_edge_index_dict)
 
+        #不同节点的特征向量上下拼接起来
         g1_x_dict_conv_concat = torch.cat([g1_x_dict_conv[node_type] for node_type in g1_x_dict_conv.keys()], dim=0)
         g2_x_dict_conv_concat = torch.cat([g2_x_dict_conv[node_type] for node_type in g2_x_dict_conv.keys()], dim=0)
 
@@ -164,7 +162,7 @@ class BinSimGNN(torch.nn.Module):
 
 
         hist=self.calculate_histogram(g1_function_x,g2_function_x) #(1,bins)
-        #得到图向量
+        #得到图的local info
         pooled_features_1 = self.attention(g1_x_dict_conv_concat) #(heads*hidden_dim,1)
         pooled_features_2 = self.attention(g2_x_dict_conv_concat)
 
@@ -193,7 +191,6 @@ class ContrastiveLoss(nn.Module):
 
 
 
-
 class BinSimGNNTrainer(object):
 
     def __init__(self, args):
@@ -210,44 +207,55 @@ class BinSimGNNTrainer(object):
         pass
 
     def initial(self):
-        self.training_graphs = glob.glob(self.args.debug_training_graphs + "*.pth")
-        testing_graphs = glob.glob(self.args.debug_testing_graphs + "*.pth")
-        split_ratio = 0.2  # 20% 用作验证集
-        num_validation = int(len(testing_graphs) * split_ratio)
-        random.shuffle(testing_graphs)
-        self.valid_graphs = testing_graphs[:num_validation]
-        self.testing_graphs = testing_graphs[num_validation:]
-
-#        if len(self.training_graphs) % 2 != 0:
-#            self.training_graphs.pop()  
-#        if len(self.valid_graphs) % 2 != 0:
-#            self.valid_graphs.pop()  
-#        if len(self.testing_graphs) % 2 != 0:
-#            self.testing_graphs.pop()  
-        
+        self.dataset_path=self.args.debug_dataset
+        self.train_g_pairs=torch.load(os.path.join(self.dataset_path,'train.pth'))
+        self.test_g_pairs=torch.load(os.path.join(self.dataset_path,'test.pth'))
+        self.valid_g_pairs=torch.load(os.path.join(self.dataset_path,'valid.pth'))
 
 
-    def create_batches(self,graphs):
+    def create_batches(self,g_pairs):
         """
         Creating batches from the training graph list.
         :return batches: List of lists with batches.
         """
-        random.shuffle(graphs)
+        positive_g_pairs=g_pairs['positive']
+        negative_g_pairs=g_pairs['negative']
+        random.shuffle(positive_g_pairs)
+        random.shuffle(negative_g_pairs)
+
+        if self.args.batch_pairs_size % 2 !=0:
+            print('batch_pairs_size 必须是偶数 ')
+            sys.exit(1)
+
         batches = []
-        for graph in range(0, len(graphs), self.args.batch_size):
-            batches.append(graphs[graph:graph+self.args.batch_size])
+        # 每个 batch 中正例和负例对各占一半
+        half_batch_pairs_size = self.args.batch_pairs_size // 2
+
+        batches_num = len(positive_g_pairs) // half_batch_pairs_size
+
+        for i in range(batches_num):
+            positive_batch = positive_g_pairs[i * half_batch_pairs_size: (i + 1) * half_batch_pairs_size]
+            negative_batch = negative_g_pairs[i * half_batch_pairs_size: (i + 1) * half_batch_pairs_size]
+            batch = positive_batch + negative_batch
+            random.shuffle(batch)
+            batches.append(batch)
+
+        remaining_positives = positive_g_pairs[batches_num * half_batch_pairs_size:]
+        remaining_negatives = negative_g_pairs[batches_num * half_batch_pairs_size:]
+
+        if remaining_positives != []:
+            batch = remaining_positives + remaining_negatives
+            batches.append(batch)
+
         return batches
 
-    def process_batch(self, batch):
+    def process_batch_g_pair(self, batch_g_pairs):
 
         self.optimizer.zero_grad()  
-        import itertools
-        g_pairs = list(itertools.combinations(batch, 2))
-        #g_pairs = [(batch[i], batch[i + 1]) for i in range(0, len(batch), 2)]
         
         batch_g_sim=[]
-        batch_labels=[]
-        for g_pair in g_pairs:
+        batch_g_labels=[]
+        for g_pair in batch_g_pairs:
             g1 = torch.load(g_pair[0])
             g2 = torch.load(g_pair[1])
             
@@ -275,19 +283,19 @@ class BinSimGNNTrainer(object):
                 ('inst','call','inst'):g2['inst','call','inst'].edge_index
             }
 
-            batch_labels.append(1 if g1.g_label == g2.g_label else 0)
+            batch_g_labels.append(1 if g1.g_label == g2.g_label else 0)
             batch_g_sim.append(self.model((g1_x_dict,g2_x_dict),(g1_edge_index_dict,g2_edge_index_dict),(g1.function_dict,g2.function_dict)).reshape(-1))
 
 
         batch_g_sim = torch.cat(batch_g_sim)  
-        batch_labels = torch.tensor(batch_labels, dtype=torch.float).cuda()
+        batch_g_labels = torch.tensor(batch_g_labels, dtype=torch.float).cuda()
         #batch_labels = torch.tensor(batch_labels, dtype=torch.float)
 
-        batch_avg_loss=self.loss_fn(batch_g_sim,batch_labels)
-        batch_avg_loss.backward()
+        batch_avg_loss_per_pair=self.loss_fn(batch_g_sim,batch_g_labels)
+        batch_avg_loss_per_pair.backward()
         self.optimizer.step()
 
-        return batch_avg_loss.detach().item()
+        return batch_avg_loss_per_pair.detach().item()
 
     def fit(self):
         """
@@ -315,17 +323,24 @@ class BinSimGNNTrainer(object):
 
         best_metric = float('inf')  # 用于存储最佳模型的验证误差
         epochs = trange(start_epoch,self.args.epochs, leave=True, desc="Epoch")
-        for epoch in epochs:
-            batches = self.create_batches(self.training_graphs)
-            epoch_loss_sum = 0 #统计这个epoch的总loss
-            main_index = 0
-            for batch_index, batch in tqdm(enumerate(batches), total=len(batches), desc="Batches"):
 
-                batch_avg_loss = self.process_batch(batch) #得到batch的平均loss
-                main_index = main_index + len(batch)
-                epoch_loss_sum = epoch_loss_sum + batch_avg_loss*len(batch) 
-                avg_loss = epoch_loss_sum/main_index
-                epochs.set_description("Epoch %d (Loss=%g)" % (epoch,round(avg_loss, 10))) #得到当前的平均loss
+        for epoch in epochs:
+           #调整学习率
+            if epoch == 5:
+                self.optimizer.param_groups[0]['lr']=self.optimizer.param_groups[0]['lr']*0.1
+      
+
+
+            batches = self.create_batches(self.train_g_pairs)
+            epoch_loss_sum = 0 #统计这个epoch的总loss
+            g_pairs_num = 0
+
+            for batch_index, batch_g_pair in tqdm(enumerate(batches), total=len(batches), desc="Batches"):
+                batch_avg_loss_per_pair = self.process_batch_g_pair(batch_g_pair) #得到batch中每对的平均loss
+                g_pairs_num=g_pairs_num+len(batch_g_pair)
+                epoch_loss_sum = epoch_loss_sum + batch_avg_loss_per_pair*len(batch_g_pair)
+                epoch_avg_loss = epoch_loss_sum/g_pairs_num
+                epochs.set_description("Epoch %d (Loss_Per_Pair=%g)" % (epoch,round(epoch_avg_loss, 10))) #得到当前每对的平均loss
 
             
             print(f"\nEpoch {epoch} completed, now evaluating on the validation set.")
@@ -347,23 +362,24 @@ class BinSimGNNTrainer(object):
         self.predition=[]
 
         if mode =='test':
-            graphs=self.testing_graphs
+            g_pairs=self.test_g_pairs
             print("\nFinal evaluation on the test set.")
         elif mode == 'eval':        
-            graphs=self.valid_graphs
+            g_pairs=self.valid_g_pairs
         else:
             print('error mode .please use test or eval')
             import sys
             sys.exit(1)
 
-        loss = 0 #统计总loss
+        loss_sum = 0 #统计总loss
+        batches = self.create_batches(g_pairs)
+        g_pairs_num = 0
+        for index, batch_g_pair in tqdm(enumerate(batches), total=len(batches), desc="Batches"):
+            batch_avg_loss_per_pair = self.process_batch_g_pair(batch_g_pair) #得到batch中每对的平均loss
+            g_pairs_num=g_pairs_num+len(batch_g_pair)
+            loss_sum = loss_sum + batch_avg_loss_per_pair*len(batch_g_pair) 
 
-        batches = self.create_batches(graphs)
-        for index, batch in tqdm(enumerate(batches), total=len(batches), desc="Batches"):
-            batch_avg_loss = self.process_batch(batch) #得到batch的平均loss
-            loss = loss + batch_avg_loss*len(batch) 
-
-        return loss/len(graphs)  #返回验证集/测试集的平均loss
+        return loss_sum/g_pairs_num  #返回验证集/测试集中每对的平均loss
 
     def save(self,epoch,metric):
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")  # 时间格式: 年月日_时分秒

@@ -20,7 +20,8 @@ from gensim.models import Word2Vec
 import re
 from sklearn.preprocessing import normalize
 from programl.proto import program_graph_pb2
-
+from collections import defaultdict
+import itertools
 
 prop_threads=10 #不要开太大  不然内存占用会偏大
 
@@ -35,11 +36,15 @@ class BatchProgramlCorpus:
         for ir_programl in self.ir_programl_list:
                 for node in ir_programl.node:
                     if node.type==0:
-                        if  inst_node_isvalid(node):#只收集有效inst节点的token
-                            node_text = node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
-                            node_text=normalize_inst(node_text)
-                            node.text=node_text  #node.text 修改为归一化后的full_text
-                            yield node_text.split()
+                        if inst_node_isvalid(node):#只收集有效inst节点的token
+                            #该节点特殊处理
+                            if node.text=='[external]':
+                                yield node.text.split() 
+                            else:
+                                node_text = node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
+                                node_text=normalize_inst(node_text)
+                                node.text=node_text  #node.text 修改为归一化后的full_text
+                                yield node_text.split()
 
                     elif node.type==3:
                         pass
@@ -62,6 +67,9 @@ def remove_metadata_comma_align(ir):
     return ir
 
 def inst_node_isvalid(inst_node): #该指令是否有用
+    #该节点要特殊处理
+    if inst_node.text=='[external]':
+        return True
     if inst_node.features and inst_node.features.feature["full_text"].bytes_list.value :     
         inst_node_text = inst_node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
         if inst_node_text=='': #无用节点
@@ -82,10 +90,10 @@ def programG2pyg(
             
     def _run_one(graph: ProgramGraph) -> None:
 
-            # 3 lists, one per edge type
-        # (control,input,output,#call) control:inst->inst  input:data->inst output:inst->data   call:inst->inst(舍弃)
-            edge_index = [[], [], []] 
-            edge_positions = [[], [], []]
+            # 4 lists, one per edge type
+        # (control,input,output,call) control:inst->inst  input:data->inst output:inst->data   call:inst->inst
+            edge_index = [[], [], [],[]] 
+            edge_positions = [[], [], [],[]]
             # 2 node type: data instruction
             data_nodes=[]
             inst_nodes=[]
@@ -135,9 +143,10 @@ def programG2pyg(
                     else:#input: data->inst
                         edge_index[1].append([data_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
                         t=1
-                else: #inst->inst
-                    #edge_index[3].append([inst_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
-                    #t=3
+                elif e_type==2: #inst->inst
+                    edge_index[3].append([inst_node_index_map[str(source_node)],inst_node_index_map[str(target_node)]])
+                    t=3
+                else: 
                     pass
                 #边和position一一对应
                 edge_positions[t].append(edge.position)
@@ -152,32 +161,27 @@ def programG2pyg(
             # Create the graph structure
             hetero_graph = HeteroData()
 
-            
 
             # Add the adjacency lists
             hetero_graph['inst', 'control', 'inst'].edge_index = edge_index[0].T.contiguous()
             hetero_graph['data', 'input', 'inst'].edge_index = edge_index[1].T.contiguous()
             hetero_graph['inst', 'output', 'data'].edge_index = edge_index[2].T.contiguous()
-            #hetero_graph['inst', 'call', 'inst'].edge_index = edge_index[3].T.contiguous()
+            hetero_graph['inst', 'call', 'inst'].edge_index = edge_index[3].T.contiguous()
 
             # Add the edge positions
             hetero_graph['inst', 'control', 'inst'].edge_attr = edge_positions[0]
             hetero_graph['data', 'input', 'inst'].edge_attr = edge_positions[1]
             hetero_graph['inst', 'output', 'data'].edge_attr = edge_positions[2]
-            #hetero_graph['inst', 'call', 'inst'].edge_attr = edge_positions[3]
-
+            hetero_graph['inst', 'call', 'inst'].edge_attr = edge_positions[3]
+            
+            
             hetero_graph.programl_graph=graph #保存这个programl图用于生成节点的特征向量
             hetero_graph.function_dict=function_dict
 
             #subdir_binname  作为图的label 如果相同则相似 否则不相似
             heteroG_file_path=graph.module[-1].name
-
-            # 找到最后一个 "_" 的位置
-            last_underscore_index = heteroG_file_path.rfind("_")
-
-            # 找到 ".strip" 的位置
-            strip_index = heteroG_file_path.find(".strip")
-            bin_name=heteroG_file_path[last_underscore_index + 1:strip_index]
+            match=re.search(r'O[0-3sfast]+_(.*?)\.strip', heteroG_file_path)
+            bin_name=match.group(1)
             subdir=os.path.basename(os.path.dirname(heteroG_file_path))
             hetero_graph.g_label=subdir+'_'+bin_name
             
@@ -233,14 +237,6 @@ def ir_validation(ir_string):
         return e
     
     return None
-
-def load_heteroG(heteroG_file_path):
-    return torch.load(heteroG_file_path)
-
-
-
-
-
 
 def read_vector_from_file(file_path):
     with open(file_path, 'r') as file:
@@ -355,12 +351,13 @@ def prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir):
 
 def collect_heteroG_files(root_dir):
     # 遍历所有子目录，收集所有的 .pth 文件路径
-    heteroG_files = []
+    #heteroG_files = []
     for subdir, _, files in os.walk(root_dir):
         for file in files:
             if file.endswith('.pth'):
-                heteroG_files.append(os.path.join(subdir, file))
-    return heteroG_files
+                yield os.path.join(subdir,file)
+    #           heteroG_files.append(os.path.join(subdir, file))
+    #return heteroG_files
 
 def init_nodevector(heteroG_save_dir):
 
@@ -402,41 +399,83 @@ def init_nodevector(heteroG_save_dir):
 
         heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
         heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
-
+        
+        #初始化完后可以删除heteroG.programl_graph
+        delattr(heteroG,'programl_graph')
         torch.save(heteroG, heteroG_file)
 
-def build_dataset(heteroG_save_dir,heteroG_dataset_dir):
+def build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size):
     
     heteroG_files=collect_heteroG_files(heteroG_save_dir)
-    random.shuffle(heteroG_files)
-    train_ratio=0.8
-    train_size = int(len(heteroG_files) * train_ratio)
-    
-    # 划分为训练集和测试集
-    train_files = heteroG_files[:train_size]
-    test_files = heteroG_files[train_size:]
-    
-    train_dir=os.path.join(heteroG_dataset_dir,'train')
-    test_dir=os.path.join(heteroG_dataset_dir,'test')
-    os.makedirs(train_dir, exist_ok=True)
-    os.makedirs(test_dir, exist_ok=True)
-    
-    for file in train_files:
-        shutil.copy(file, train_dir)
-    for file in test_files:
-        shutil.copy(file, test_dir)
 
 
+
+    g_label_to_files = defaultdict(list)
+    for file in heteroG_files:
+        match=re.search(r'O[0-3sfast]+_(.*?)\.strip', file)
+        bin_name=match.group(1)
+        subdir=os.path.basename(os.path.dirname(file))
+        g_label=subdir+'_'+bin_name
+        g_label_to_files[g_label].append(file)  
+    
+    positive_pairs = []
+    for files in g_label_to_files.values():
+        positive_pairs.extend((file1, file2) for file1, file2 in itertools.combinations(files, 2))
+
+    # 记录正例对的数量
+    num_positive_pairs = len(positive_pairs)
+
+    max_dataset_size = num_positive_pairs * 2
+    if  dataset_size > max_dataset_size:
+        print('dataset_size is too large')
+        sys.exit(1)
+
+    negative_pairs = []
+    labels = list(g_label_to_files.keys())
+    for i, label_1 in enumerate(labels):
+        for label_2 in labels[i+1:]:
+            files_1 = g_label_to_files[label_1]
+            files_2 = g_label_to_files[label_2]
+            negative_pairs.extend((file1, file2) for file1, file2 in itertools.product(files_1, files_2))
+
+    num_pairs_to_select = dataset_size // 2 
+
+    selected_positive_pairs = random.sample(positive_pairs, num_pairs_to_select)
+    selected_negative_pairs = random.sample(negative_pairs, num_pairs_to_select)
+
+    train_size = int(num_pairs_to_select * 0.7)
+    test_size = int(num_pairs_to_select * 0.2)
+
+    train_pairs = {
+        'positive': selected_positive_pairs[:train_size],
+        'negative': selected_negative_pairs[:train_size]
+    }
+    test_pairs = {
+        'positive': selected_positive_pairs[train_size:train_size + test_size],
+        'negative': selected_negative_pairs[train_size:train_size + test_size]
+    }
+    valid_pairs = {
+        'positive': selected_positive_pairs[train_size + test_size:],
+        'negative': selected_negative_pairs[train_size + test_size:]
+    }
+
+
+    train_file = os.path.join(heteroG_dataset_dir, 'train.pth')
+    test_file = os.path.join(heteroG_dataset_dir, 'test.pth')
+    valid_file = os.path.join(heteroG_dataset_dir, 'valid.pth')
+
+    torch.save(train_pairs, train_file)
+    torch.save(test_pairs, test_file)
+    torch.save(valid_pairs, valid_file)
 
 if __name__=='__main__':
 
     debug=False
     small_dataset=True
-    save_dir=r'/home/ouyangchao/binsimgnn/dataset'
-    model_dir=r'/home/ouyangchao/binsimgnn/model'
-
-    corpus_model_path=os.path.join(model_dir,'ir_corpus.model')
-    corpus_vec_path=os.path.join(model_dir,'ir_corpus.vector')
+    root=r'/home/ouyangchao/binsimgnn'
+    save_dir=os.path.join(root,'dataset')
+    dataset_size=5000  #最好是10的倍数
+    random.seed(18)
 
     if debug:
         ll_file_dir=os.path.join(save_dir,'test_IR')
@@ -444,8 +483,8 @@ if __name__=='__main__':
         prep_log_dir=os.path.join(save_dir,'test_invalid_IR')
         prep_save_dir=os.path.join(save_dir,'test_preprocessed_IR')
         ir_programl_dir=os.path.join(save_dir,'test_ir_programl')
-        #vec_dir=os.path.join(save_dir,'test_IR_vec')
-        heteroG_dataset_dir=r'/home/ouyangchao/binsimgnn/debug_heteroG_dataset'
+        vocab_dir=os.path.join(root,'test_vocab')
+        heteroG_dataset_dir=os.path.join(root,'debug_heteroG_dataset')
 
     else:
         if small_dataset:
@@ -454,22 +493,23 @@ if __name__=='__main__':
             prep_log_dir=os.path.join(save_dir,'binkit_small_invalid_IR')
             prep_save_dir=os.path.join(save_dir,'binkit_small_preprocessed_IR')
             ir_programl_dir=os.path.join(save_dir,'binkit_small_ir_programl')
-            #vec_dir=os.path.join(save_dir,'binkit_small_IR_vec')
-            heteroG_dataset_dir=r'/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset'
+            vocab_dir=os.path.join(root,'binkit_small_vocab')
+            heteroG_dataset_dir=os.path.join(root,'binkit_small_heteroG_dataset')
  
-        else:            
-            ll_file_dir=os.path.join(save_dir,'IR')
-            heteroG_save_dir=os.path.join(save_dir,'heteroG')
-            prep_log_dir=os.path.join(save_dir,'invalid_IR')
-            prep_save_dir=os.path.join(save_dir,'preprocessed_IR')
-            #vec_dir=os.path.join(save_dir,'IR_vec')
-            heteroG_dataset_dir=r'/home/ouyangchao/binsimgnn/heteroG_dataset'
-        
+        else:         
+            print('please choose a dataset')   
+            sys.exit(1)
+
+    corpus_model_path=os.path.join(vocab_dir,'ir_corpus.model')
+    corpus_vec_path=os.path.join(vocab_dir,'ir_corpus.vector')
+
+
     os.makedirs(heteroG_save_dir, exist_ok=True)
     os.makedirs(prep_log_dir, exist_ok=True)
     os.makedirs(prep_save_dir, exist_ok=True)
     os.makedirs(heteroG_dataset_dir,exist_ok=True)
     os.makedirs(ir_programl_dir,exist_ok=True)
+    os.makedirs(vocab_dir,exist_ok=True)
 
 
     prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir)
@@ -487,4 +527,4 @@ if __name__=='__main__':
 
     init_nodevector(heteroG_save_dir)
 
-    build_dataset(heteroG_save_dir,heteroG_dataset_dir)
+    build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size)

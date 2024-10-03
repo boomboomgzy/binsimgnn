@@ -8,39 +8,29 @@ def parameter_parser():
     The default hyperparameters give a high performance model without grid search.
     """
     parser = argparse.ArgumentParser(description="Run SimGNN.")
-    parser.add_argument("--debug-training-graphs",
+    parser.add_argument("--debug-dataset",
                         nargs="?",
-                        default="/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset/train/",
-	                help="Folder with training graph pair jsons.")
-
-    parser.add_argument("--debug-testing-graphs",
-                        nargs="?",
-                        default="/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset/test/",
-	                help="Folder with testing graph pair jsons.")
+                        default="/home/ouyangchao/binsimgnn/debug_heteroG_dataset",
+	                help="Folder with debug_dataset")
     
-    parser.add_argument("--training-graphs",
+    parser.add_argument("--dataset",
                         nargs="?",
-                        default="./heteroG_dataset/train/",
-	                help="Folder with training graph pair jsons.")
-
-    parser.add_argument("--testing-graphs",
-                        nargs="?",
-                        default="./heteroG_dataset/test/",
-	                help="Folder with testing graph pair jsons.")
+                        default="/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset",
+	                help="Folder with dataset")
 
     parser.add_argument("--epochs",
                         type=int,
-                        default=100,
-	                help="Number of training epochs. Default is 100.")
+                        default=50,
+	                help="Number of training epochs.")
 
     parser.add_argument("--tensor-neurons",
                         type=int,
-                        default=16,
+                        default=32,
 	                help="Neurons in tensor network layer. Default is 16.") #NTN中W切片的数量
 
     parser.add_argument("--bottle-neck-neurons",
                         type=int,
-                        default=16,
+                        default=32,
 	                help="Bottle neck layer neurons. Default is 16.")
 
     parser.add_argument("--num_layers",
@@ -51,18 +41,18 @@ def parameter_parser():
 
     parser.add_argument("--hidden_dim",
                     type=int,
-                    default=64,
+                    default=32,
                 help="hidden layer dimension")
 
     parser.add_argument("--heads",
                     type=int,
-                    default=3,
+                    default=2,
                 help="attention heads")
     
-    parser.add_argument("--batch-size",  
+    parser.add_argument("--batch-pairs-size",  
                         type=int,
                         default=4,
-	                help="Number of graph pairs per batch, must be even . Default is 4.")
+	                help="一个batch中图对的个数,必须是偶数(正负对各一半)")
 
     parser.add_argument("--bins",
                         type=int,
@@ -76,8 +66,8 @@ def parameter_parser():
 
     parser.add_argument("--learning-rate",
                         type=float,
-                        default=0.005,
-	                help="Learning rate. Default is 0.001.")
+                        default=0.001,
+	                help="initial Learning rate. ")
 
     parser.add_argument("--weight-decay",
                         type=float,
@@ -86,7 +76,7 @@ def parameter_parser():
 
     parser.add_argument("--save-dir",
                         type=str,
-                        default=r'/home/ouyangchao/binsimgnn/model',
+                        default=r'/home/ouyangchao/binsimgnn/binkit_small_model',
                         help="Dir to save the trained model")
 
     parser.add_argument("--load-path",
