@@ -18,7 +18,7 @@ def main():
     random.seed(18)
     torch.manual_seed(18)
     torch.cuda.manual_seed_all(18)
-    torch.cuda.set_device(3)
+    torch.cuda.set_device(2)
     trainer.fit()
     metric=trainer.score(mode='test')
     print(f'test metric: {str(round(metric, 10))}')

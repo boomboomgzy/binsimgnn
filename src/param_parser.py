@@ -20,7 +20,7 @@ def parameter_parser():
 
     parser.add_argument("--epochs",
                         type=int,
-                        default=50,
+                        default=20,
 	                help="Number of training epochs.")
 
     parser.add_argument("--tensor-neurons",
@@ -35,7 +35,7 @@ def parameter_parser():
 
     parser.add_argument("--num_layers",
                     type=int,
-                    default=2,
+                    default=3,
                 help="GCN layers num.")
 
 
@@ -56,7 +56,7 @@ def parameter_parser():
 
     parser.add_argument("--bins",
                         type=int,
-                        default=16,
+                        default=32,
 	                help="Similarity score bins. Default is 16.")
 
     parser.add_argument("--dropout",
@@ -66,13 +66,13 @@ def parameter_parser():
 
     parser.add_argument("--learning-rate",
                         type=float,
-                        default=0.001,
+                        default=0.01,
 	                help="initial Learning rate. ")
 
     parser.add_argument("--weight-decay",
                         type=float,
                         default=5*10**-4,
-	                help="Adam weight decay. Default is 5*10^-4.")
+	                help="Adam weight decay")
 
     parser.add_argument("--save-dir",
                         type=str,
