@@ -12,7 +12,7 @@ import re
 from programl.proto import program_graph_pb2
 from collections import defaultdict
 import itertools
-from utils import remove_metadata_comma_align,ir_validation,inst_node_isvalid,init_nodevector
+from utils import remove_metadata_comma_align,ir_validation,inst_node_isvalid,collect_heteroG_files
 
 prop_threads=10 #不要开太大  不然内存占用会偏大
 
@@ -114,7 +114,6 @@ def programG2pyg(
             hetero_graph['inst', 'call', 'inst'].edge_attr = edge_positions[3]
             
             
-            hetero_graph.programl_graph=graph #保存这个programl图用于生成节点的特征向量
             hetero_graph.function_dict=function_dict
 
             #subdir_binname  作为图的label 如果相同则相似 否则不相似
@@ -329,8 +328,8 @@ def build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size):
 
 if __name__=='__main__':
 
-    debug=False
-    small_dataset=True
+    debug=True
+    small_dataset=False
     root=r'/home/ouyangchao/binsimgnn'
     save_dir=os.path.join(root,'dataset')
     dataset_size=5000  #最好是10的倍数
@@ -359,8 +358,7 @@ if __name__=='__main__':
             print('please choose a dataset')   
             sys.exit(1)
 
-    corpus_model_path=os.path.join(vocab_dir,'ir_corpus.model')
-    corpus_vec_path=os.path.join(vocab_dir,'ir_corpus.vector')
+
 
 
     os.makedirs(heteroG_save_dir, exist_ok=True)
@@ -377,6 +375,4 @@ if __name__=='__main__':
 
     programl2heteroG(ir_programl_dir)
 
-    init_nodevector(ir_programl_dir,heteroG_save_dir)
-
-    build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size)
+    #build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size)

@@ -149,6 +149,7 @@ class BinSimGNN(torch.nn.Module):
             x_dict = {key: torch.nn.functional.dropout(x, p=self.args.dropout, training=self.training) for key, x in x_dict.items()}
 
         return x_dict
+   # x_dict 和 x 都要同时手动更新 
    # def conv_pool_pass(self,batch_heteroG):
    #     for layer_index,conv in enumerate(self.convs):
    #         x_dict=conv(batch_heteroG.x_dict,batch_heteroG.edge_index_dict)
@@ -157,7 +158,7 @@ class BinSimGNN(torch.nn.Module):
    #         #异构图更新节点特征
    #         batch_heteroG['inst']['x']=x_dict['inst']
    #         batch_heteroG['data']['x']=x_dict['data']
-   #         batch_heteroG.x_dict=x_dict
+
    #         batch_homoG=batch_heteroG.to_homogeneous(edge_attrs=['edge_attr'])
    #         if layer_index!=(len(self.convs)-1): #最后一层不用再做pooling
    #             batch_homoG.x, batch_homoG.edge_index, batch_homoG.edge_attr, batch_homoG.batch, _, _ = self.pooling(batch_homoG.x, batch_homoG.edge_index.cuda(), batch_homoG.edge_attr.cuda(), batch_homoG.batch.cuda())
@@ -173,6 +174,7 @@ class BinSimGNN(torch.nn.Module):
 
    #     return batch_global_x
 
+     # x_dict 和 x 都要同时手动更新 
     def forward(self,batch_g1,batch_g2):
         batch_g1_x_dict = batch_g1.x_dict
         batch_g2_x_dict = batch_g2.x_dict
@@ -187,11 +189,11 @@ class BinSimGNN(torch.nn.Module):
         batch_g1_x_dict_conv = self.conv_pass(batch_g1.x_dict,batch_g1.edge_index_dict)
         batch_g2_x_dict_conv = self.conv_pass(batch_g2.x_dict,batch_g2.edge_index_dict)
 
-        batch_g1['inst']['x']=batch_g1_x_dict_conv['inst']
-        batch_g1['data']['x']=batch_g1_x_dict_conv['data']
+        batch_g1['inst'].x=batch_g1_x_dict_conv['inst']
+        batch_g1['data'].x=batch_g1_x_dict_conv['data']
+        batch_g2['inst'].x=batch_g2_x_dict_conv['inst']
+        batch_g2['data'].x=batch_g2_x_dict_conv['data']
         batch_g1.x_dict=batch_g1_x_dict_conv
-        batch_g2['inst']['x']=batch_g2_x_dict_conv['inst']
-        batch_g2['data']['x']=batch_g2_x_dict_conv['data']
         batch_g2.x_dict=batch_g2_x_dict_conv
 
         batch_homo_g1=batch_g1.to_homogeneous(edge_attrs=['edge_attr'])
@@ -206,7 +208,7 @@ class BinSimGNN(torch.nn.Module):
           
         return cosine_similarities
 
-
+     # x_dict 和 x 都要同时手动更新 
     def forward_full(self, batch_g1,batch_g2):
 
         batch_g1_x_dict = batch_g1.x_dict
@@ -227,8 +229,7 @@ class BinSimGNN(torch.nn.Module):
         batch_g2['inst']['x']=batch_g2_x_dict_conv['inst']
         batch_g1['data']['x']=batch_g1_x_dict_conv['data']
         batch_g2['data']['x']=batch_g2_x_dict_conv['data']
-        batch_g1.x_dict=batch_g1_x_dict_conv
-        batch_g2.x_dict=batch_g2_x_dict_conv
+
 
 
         batch_g1_homo = batch_g1.to_homogeneous()

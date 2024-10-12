@@ -1,7 +1,6 @@
 """Data processing utilities."""
 
-import json
-import math
+import programl
 from texttable import Texttable
 import torch
 import re
@@ -9,6 +8,10 @@ from llvmlite import binding
 import numpy as np
 import os
 from gensim.models import Word2Vec
+from sklearn.preprocessing import normalize
+from tqdm import tqdm
+import IR2Vec
+
 
 def tab_printer(args):
     """
@@ -37,6 +40,9 @@ def ir_validation(ir_string):
     return None
 
 def inst_node_isvalid(inst_node): #该指令是否有用
+    #该节点要特殊处理
+    if inst_node.text=='[external]':
+        return True
     if inst_node.features and inst_node.features.feature["full_text"].bytes_list.value :     
         inst_node_text = inst_node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
         if inst_node_text=='': #无用节点
@@ -45,10 +51,11 @@ def inst_node_isvalid(inst_node): #该指令是否有用
             return True
 
 def normalize_inst(inst):
-    inst=re.sub(r'@global_var_\d+', '@global_var', inst)
+    inst=re.sub(r'@global_var_\w+', '@global_var', inst)
     inst=re.sub(r'@\d+', '@global_var', inst)
     inst=re.sub(r'%[\w\.\-]+', '%ID', inst)
     inst=re.sub(r'(?<=\s)-?\d+(\.\d+)?\b', '%CONST', inst)
+    inst = re.sub(r'@function_\w+', '@function', inst)
     return inst
 
 def remove_metadata_comma_align(ir):
@@ -64,56 +71,142 @@ def read_vector_from_file(file_path):
     return vector
 
 class BatchProgramlCorpus:
-    def __init__(self, ir_programl_list):
-        self.ir_programl_list=ir_programl_list
+    def __init__(self, ir_programl_file_list):
+        self.ir_programl_file_list=ir_programl_file_list
 
     def __iter__(self):
-        for ir_programl in self.ir_programl_list:
+        for ir_programl_file in self.ir_programl_file_list:
+                ir_programl=programl.load_graphs(ir_programl_file)[0]
                 for node in ir_programl.node:
                     if node.type==0:
-                        if  inst_node_isvalid(node):#只收集有效inst节点的token
-                            node_text = node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
-                            node_text=normalize_inst(node_text)
-                            node.text=node_text  #node.text 修改为归一化后的full_text
-                            yield node_text.split()
+                        if inst_node_isvalid(node):#只收集有效inst节点的token
+                            #该节点特殊处理
+                            if node.text=='[external]':
+                                yield node.text.split() 
+                            else:
+                                node_text = node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
+                                node_text=normalize_inst(node_text)
+                                node.text=node_text  #node.text 修改为归一化后的full_text 
+                                yield node_text.split()
 
                     elif node.type==3:
                         pass
                     else:
                         yield [node.text]
+                
+                programl.save_graphs(ir_programl_file,[ir_programl])
 
-def gen_tokens(ir_programls_list):
-
-    global model
-    corpus = BatchProgramlCorpus(ir_programls_list)
-    if len(model.wv) == 0:
-        model.build_vocab(corpus)
-    else:
-        model.build_vocab(corpus, update=True)
-        
-    model.train(corpus, total_examples=model.corpus_count, epochs=model.epochs)
 
 
 def collect_heteroG_files(root_dir):
-    # 遍历所有子目录，收集所有的 .pth 文件路径
-    #heteroG_files = []
     for subdir, _, files in os.walk(root_dir):
         for file in files:
             if file.endswith('.pth'):
                 yield os.path.join(subdir,file)
 
 
-def init_nodevector(ir_programl_dir,heteroG_save_dir):
+def collect_programl_files(root_dir):
+    ir_programl_file_list=[]
+    for subdir, _, files in os.walk(root_dir):
+        for file in files:
+            if file.endswith('.prog'):
+                ir_programl_file_list.append(os.path.join(subdir,file))
+    
+    return ir_programl_file_list
 
-    model = Word2Vec(vector_size=16, sg=0,window=8, min_count=1, workers=prop_threads) #参数需要做进一步实验看最好的效果
+#def init_nodevector_by_ir2vec(ir_programl_dir,heteroG_save_dir,vector_log_file):
+#    
+#    #为每个异构图初始化节点向量
+#    heteroG_files=collect_heteroG_files(heteroG_save_dir)
+#    for heteroG_file in heteroG_files:
+#        heteroG=torch.load(heteroG_file)
+#        programl_file_sub_dir=os.path.basename(os.path.dirname(heteroG_file))
+#        programl_file_name = os.path.basename(heteroG_file).replace('.pth', '.prog')
+#        programl_file_path=os.path.join(ir_programl_dir,programl_file_sub_dir,programl_file_name)
+#        programl_graph=programl.load_graphs(programl_file_path)[0]
+#        
+#        data_nodes=[]
+#        inst_nodes=[]
+#        #根据node.text初始化节点特征向量
+#        inst_features=[]
+#        data_features=[]
+#
+#        for node in programl_graph.node:
+#            if node.type==0:
+#                if inst_node_isvalid(node):
+#                    inst_nodes.append(node)
+#            elif node.type==3:
+#                pass
+#            else:
+#                data_nodes.append(node)
+#
+#        #记录每个节点的向量
+#        v_file=open(vector_log_file,'w') 
+#
+#        for node in inst_nodes:
+#            inst=node.text
+#            token_list=inst.split()
+#            #token_vectors = [model.wv[token] for token in token_list]
+#            #node_vector=np.sum(token_vectors, axis=0)
+#            node_vector=np.mean(token_vectors,axis=0)
+#            #可以试试根据词频来加权
+#            inst_features.append(node_vector)
+#            str_node_vector='['+','.join(map(str, node_vector))+']'
+#            v_file.write(f"{inst} : {str_node_vector}\n") 
+#
+#        for node in data_nodes:
+#            data=node.text
+#            #node_vector=model.wv[data]
+#            data_features.append(node_vector)
+#            str_node_vector='['+','.join(map(str, node_vector))+']'
+#            v_file.write(f"{data} : {str_node_vector}\n")
+#
+#        v_file.close()
+#        # x_dict 和 x 最后都要同时手动更新 
+#        heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
+#        heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
+#        heteroG.x_dict={
+#            'inst': heteroG['inst'].x,
+#            'data': heteroG['data'].x
+#            }
+#
+#        #初始化完后可以删除heteroG.programl_graph
+#        if hasattr(heteroG, 'programl_graph'):
+#            delattr(heteroG, 'programl_graph')
+#
+#        torch.save(heteroG, heteroG_file)
+
+
+
+def init_nodevector(ir_programl_dir,heteroG_save_dir,corpus_model_path,corpus_vec_path,prop_threads,vector_log_file):
+
     #先生成vocab
 
+    model = Word2Vec(vector_size=64, sg=1,negative=10, window=10, min_count=1, workers=prop_threads,epochs=20,alpha=0.05,min_alpha=0.001,sample=1e-4) #参数需要做进一步实验看最好的效果
+    corpus = BatchProgramlCorpus(collect_programl_files(ir_programl_dir))
+    model.build_vocab(corpus)
+    #model.train(corpus, total_examples=model.corpus_count, epochs=model.epochs)
+    with tqdm(total=model.epochs, desc="Training Progress", unit="epoch") as pbar:
+        for epoch in range(model.epochs):
+            model.train(corpus, total_examples=model.corpus_count, epochs=1) 
+            pbar.update(1)  # 更新进度条
 
+
+    #归一化词向量
+    #for word in model.wv.key_to_index:
+    #    model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
+
+    model.save(corpus_model_path)#.model可以用于继续训练
+    model.wv.save_word2vec_format(corpus_vec_path)
+    
     #为每个异构图初始化节点向量
     heteroG_files=collect_heteroG_files(heteroG_save_dir)
     for heteroG_file in heteroG_files:
         heteroG=torch.load(heteroG_file)
-        programl_graph=heteroG.programl_graph
+        programl_file_sub_dir=os.path.basename(os.path.dirname(heteroG_file))
+        programl_file_name = os.path.basename(heteroG_file).replace('.pth', '.prog')
+        programl_file_path=os.path.join(ir_programl_dir,programl_file_sub_dir,programl_file_name)
+        programl_graph=programl.load_graphs(programl_file_path)[0]
         
         data_nodes=[]
         inst_nodes=[]
@@ -130,32 +223,39 @@ def init_nodevector(ir_programl_dir,heteroG_save_dir):
             else:
                 data_nodes.append(node)
 
+        #记录每个节点的向量
+        v_file=open(vector_log_file,'w') 
+
         for node in inst_nodes:
             inst=node.text
             token_list=inst.split()
             token_vectors = [model.wv[token] for token in token_list]
-            #node_vector=np.sum(token_vectors, axis=0)
-            node_vector=np.mean(token_vectors,axis=0)
-            #可以试试根据词频来加权
+            node_vector=np.sum(token_vectors, axis=0)
+            #node_vector=np.mean(token_vectors,axis=0)
             inst_features.append(node_vector)
+            str_node_vector='['+','.join(map(str, node_vector))+']'
+            v_file.write(f"{inst} : {str_node_vector}\n") 
 
         for node in data_nodes:
             data=node.text
             node_vector=model.wv[data]
             data_features.append(node_vector)
+            str_node_vector='['+','.join(map(str, node_vector))+']'
+            v_file.write(f"{data} : {str_node_vector}\n")
 
-
+        v_file.close()
+        # x_dict 和 x 最后都要同时手动更新 
         heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
         heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
-        
+        heteroG.x_dict={
+            'inst': heteroG['inst'].x,
+            'data': heteroG['data'].x
+            }
+
         #初始化完后可以删除heteroG.programl_graph
-        delattr(heteroG,'programl_graph')
+        if hasattr(heteroG, 'programl_graph'):
+            delattr(heteroG, 'programl_graph')
+
         torch.save(heteroG, heteroG_file)
 
 
-    #归一化词向量
-    for word in model.wv.key_to_index:
-        model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
-
-    model.save(corpus_model_path)#.model可以用于继续训练
-    model.wv.save_word2vec_format(corpus_vec_path)
