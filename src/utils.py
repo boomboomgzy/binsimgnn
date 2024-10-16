@@ -114,67 +114,67 @@ def collect_programl_files(root_dir):
     
     return ir_programl_file_list
 
-#def init_nodevector_by_ir2vec(ir_programl_dir,heteroG_save_dir,vector_log_file):
-#    
-#    #为每个异构图初始化节点向量
-#    heteroG_files=collect_heteroG_files(heteroG_save_dir)
-#    for heteroG_file in heteroG_files:
-#        heteroG=torch.load(heteroG_file)
-#        programl_file_sub_dir=os.path.basename(os.path.dirname(heteroG_file))
-#        programl_file_name = os.path.basename(heteroG_file).replace('.pth', '.prog')
-#        programl_file_path=os.path.join(ir_programl_dir,programl_file_sub_dir,programl_file_name)
-#        programl_graph=programl.load_graphs(programl_file_path)[0]
-#        
-#        data_nodes=[]
-#        inst_nodes=[]
-#        #根据node.text初始化节点特征向量
-#        inst_features=[]
-#        data_features=[]
-#
-#        for node in programl_graph.node:
-#            if node.type==0:
-#                if inst_node_isvalid(node):
-#                    inst_nodes.append(node)
-#            elif node.type==3:
-#                pass
-#            else:
-#                data_nodes.append(node)
-#
-#        #记录每个节点的向量
-#        v_file=open(vector_log_file,'w') 
-#
-#        for node in inst_nodes:
-#            inst=node.text
-#            token_list=inst.split()
-#            #token_vectors = [model.wv[token] for token in token_list]
-#            #node_vector=np.sum(token_vectors, axis=0)
-#            node_vector=np.mean(token_vectors,axis=0)
-#            #可以试试根据词频来加权
-#            inst_features.append(node_vector)
-#            str_node_vector='['+','.join(map(str, node_vector))+']'
-#            v_file.write(f"{inst} : {str_node_vector}\n") 
-#
-#        for node in data_nodes:
-#            data=node.text
-#            #node_vector=model.wv[data]
-#            data_features.append(node_vector)
-#            str_node_vector='['+','.join(map(str, node_vector))+']'
-#            v_file.write(f"{data} : {str_node_vector}\n")
-#
-#        v_file.close()
-#        # x_dict 和 x 最后都要同时手动更新 
-#        heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
-#        heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
-#        heteroG.x_dict={
-#            'inst': heteroG['inst'].x,
-#            'data': heteroG['data'].x
-#            }
-#
-#        #初始化完后可以删除heteroG.programl_graph
-#        if hasattr(heteroG, 'programl_graph'):
-#            delattr(heteroG, 'programl_graph')
-#
-#        torch.save(heteroG, heteroG_file)
+def init_nodevector_by_ir2vec(ir_programl_dir,heteroG_save_dir,vector_log_file):
+    
+    #为每个异构图初始化节点向量
+    heteroG_files=collect_heteroG_files(heteroG_save_dir)
+    for heteroG_file in heteroG_files:
+        heteroG=torch.load(heteroG_file)
+        programl_file_sub_dir=os.path.basename(os.path.dirname(heteroG_file))
+        programl_file_name = os.path.basename(heteroG_file).replace('.pth', '.prog')
+        programl_file_path=os.path.join(ir_programl_dir,programl_file_sub_dir,programl_file_name)
+        programl_graph=programl.load_graphs(programl_file_path)[0]
+        
+        data_nodes=[]
+        inst_nodes=[]
+        #根据node.text初始化节点特征向量
+        inst_features=[]
+        data_features=[]
+
+        for node in programl_graph.node:
+            if node.type==0:
+                if inst_node_isvalid(node):
+                    inst_nodes.append(node)
+            elif node.type==3:
+                pass
+            else:
+                data_nodes.append(node)
+
+        #记录每个节点的向量
+        v_file=open(vector_log_file,'w') 
+
+        for node in inst_nodes:
+            inst=node.text
+            token_list=inst.split()
+            #token_vectors = [model.wv[token] for token in token_list]
+            #node_vector=np.sum(token_vectors, axis=0)
+            node_vector=np.mean(token_vectors,axis=0)
+            #可以试试根据词频来加权
+            inst_features.append(node_vector)
+            str_node_vector='['+','.join(map(str, node_vector))+']'
+            v_file.write(f"{inst} : {str_node_vector}\n") 
+
+        for node in data_nodes:
+            data=node.text
+            #node_vector=model.wv[data]
+            data_features.append(node_vector)
+            str_node_vector='['+','.join(map(str, node_vector))+']'
+            v_file.write(f"{data} : {str_node_vector}\n")
+
+        v_file.close()
+        # x_dict 和 x 最后都要同时手动更新 
+        heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
+        heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
+        heteroG.x_dict={
+            'inst': heteroG['inst'].x,
+            'data': heteroG['data'].x
+            }
+
+        #初始化完后可以删除heteroG.programl_graph
+        if hasattr(heteroG, 'programl_graph'):
+            delattr(heteroG, 'programl_graph')
+
+        torch.save(heteroG, heteroG_file)
 
 
 
