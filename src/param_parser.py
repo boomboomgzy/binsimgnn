@@ -20,7 +20,7 @@ def parameter_parser():
 
     parser.add_argument("--epochs",
                         type=int,
-                        default=20,
+                        default=50,
 	                help="Number of training epochs.")
 
     parser.add_argument("--tensor-neurons",
@@ -66,7 +66,7 @@ def parameter_parser():
 
     parser.add_argument("--learning-rate",
                         type=float,
-                        default=0.01,
+                        default=0.001,
 	                help="initial Learning rate. ")
 
     parser.add_argument("--weight-decay",

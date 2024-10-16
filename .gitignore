@@ -3,8 +3,11 @@ binkit_small_heteroG_dataset
 improve.txt
 src/test.py
 src/__pycache__
+src/mlruns
 ir2vec
 debug_heteroG_dataset
 *model
 *copy
 *vocab
+bert_test
+mlruns

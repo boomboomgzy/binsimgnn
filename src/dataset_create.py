@@ -12,7 +12,7 @@ import re
 from programl.proto import program_graph_pb2
 from collections import defaultdict
 import itertools
-from utils import remove_metadata_comma_align,ir_validation,inst_node_isvalid,collect_heteroG_files
+from utils import remove_metadata_comma_align,ir_validation,inst_node_isvalid,collect_heteroG_files,normalize_inst
 
 prop_threads=10 #不要开太大  不然内存占用会偏大
 
@@ -195,13 +195,22 @@ def ll2programl(ll_file_dir,ir_programl_dir,heteroG_save_dir):
         #创建子目录
         prog_save_sub_dir=os.path.join(ir_programl_dir,subdir)
         os.makedirs(prog_save_sub_dir,exist_ok=True)
-
+        #直接在这里对指令做正则化,后面无需再做
         for id,ir_prog in enumerate(ir_programls):
+            for node in ir_prog.node:
+                if node.type==0:
+                    if inst_node_isvalid(node):#只收集有效inst节点的token
+                        if node.text!='[external]':
+                            node_text = node.features.feature["full_text"].bytes_list.value[0].decode('utf-8')
+                            node_text=normalize_inst(node_text)
+                            node.text=node_text  #node.text 修改为归一化后的full_text 
+            
             new_module = program_graph_pb2.Module()
             new_module.name = heteroG_file_path_list[id]
             ir_prog.module.append(new_module)
             file_name=os.path.splitext(os.path.basename(heteroG_file_path_list[id]))[0]
             prog_save_path=os.path.join(prog_save_sub_dir,file_name+'.prog')
+
             programl.save_graphs(prog_save_path,[ir_prog])
 
 
@@ -328,11 +337,12 @@ def build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size):
 
 if __name__=='__main__':
 
-    debug=True
-    small_dataset=False
+    debug=False
+    small_dataset=True
     root=r'/home/ouyangchao/binsimgnn'
     save_dir=os.path.join(root,'dataset')
     dataset_size=5000  #最好是10的倍数
+    #dataset_size=20
     random.seed(18)
 
     if debug:
@@ -369,10 +379,10 @@ if __name__=='__main__':
     os.makedirs(vocab_dir,exist_ok=True)
 
 
-    prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir)
+    #prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir)
 
-    ll2programl(prep_save_dir,ir_programl_dir,heteroG_save_dir)
+    #ll2programl(prep_save_dir,ir_programl_dir,heteroG_save_dir)
 
-    programl2heteroG(ir_programl_dir)
+    #programl2heteroG(ir_programl_dir)
 
-    #build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size)
+    build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size)

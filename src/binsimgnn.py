@@ -3,7 +3,7 @@ import torch
 import random
 import numpy as np
 from tqdm import tqdm, trange
-from layers import TensorNetworkModule,TransConv
+from layers import TensorNetworkModule
 from torch import nn, optim
 import torch.nn.functional as F
 import datetime
@@ -20,7 +20,7 @@ from torch_geometric.nn import (
 from torch_geometric.data import Batch
 import os
 import sys
-
+from SGFormer import TransConv
 
 class DirHGTConv(torch.nn.Module):
     def __init__(self, input_dim, output_dim, heads,alpha):
@@ -84,7 +84,7 @@ class BinSimGNN(torch.nn.Module):
         Creating the layers.
         """
         self.calculate_bottleneck_features()
-        self.att = TransConv(in_channels=self.args.hidden_dim*self.args.heads,hidden_channels=self.args.hidden_dim*self.args.heads,dropout=self.args.dropout)
+        self.global_att = TransConv(in_channels=self.args.hidden_dim*self.args.heads,hidden_channels=self.args.hidden_dim*self.args.heads,dropout=self.args.dropout,num_heads=self.args.heads)
         self.pooling=SAGPooling(in_channels=self.args.hidden_dim*self.args.heads,ratio=0.5,GNN=GATConv)
         self.gat_layer = GATConv(in_channels=self.args.hidden_dim*self.args.heads, out_channels=self.args.hidden_dim*self.args.heads, heads=self.args.heads)
         self.tensor_network = TensorNetworkModule(self.args)
@@ -175,7 +175,7 @@ class BinSimGNN(torch.nn.Module):
    #     return batch_global_x
 
      # x_dict 和 x 都要同时手动更新 
-    def forward(self,batch_g1,batch_g2):
+    def forward_simple(self,batch_g1,batch_g2):
         batch_g1_x_dict = batch_g1.x_dict
         batch_g2_x_dict = batch_g2.x_dict
         batch_g1_edge_index_dict = batch_g1.edge_index_dict
@@ -188,7 +188,8 @@ class BinSimGNN(torch.nn.Module):
 
         batch_g1_x_dict_conv = self.conv_pass(batch_g1.x_dict,batch_g1.edge_index_dict)
         batch_g2_x_dict_conv = self.conv_pass(batch_g2.x_dict,batch_g2.edge_index_dict)
-
+        
+        #更新异构图节点特征
         batch_g1['inst'].x=batch_g1_x_dict_conv['inst']
         batch_g1['data'].x=batch_g1_x_dict_conv['data']
         batch_g2['inst'].x=batch_g2_x_dict_conv['inst']
@@ -209,7 +210,7 @@ class BinSimGNN(torch.nn.Module):
         return cosine_similarities
 
      # x_dict 和 x 都要同时手动更新 
-    def forward_full(self, batch_g1,batch_g2):
+    def forward(self, batch_g1,batch_g2):
 
         batch_g1_x_dict = batch_g1.x_dict
         batch_g2_x_dict = batch_g2.x_dict
@@ -221,67 +222,73 @@ class BinSimGNN(torch.nn.Module):
         batch_g1_edge_index_dict = {key: tensor.cuda() for key, tensor in batch_g1_edge_index_dict.items()}
         batch_g2_edge_index_dict = {key: tensor.cuda() for key, tensor in batch_g2_edge_index_dict.items()}
 
-        batch_g1_x_dict_conv = self.convolutional_pass(batch_g1_x_dict, batch_g1_edge_index_dict)
-        batch_g2_x_dict_conv = self.convolutional_pass(batch_g2_x_dict, batch_g2_edge_index_dict)
+        batch_g1_x_dict_conv = self.conv_pass(batch_g1_x_dict, batch_g1_edge_index_dict)
+        batch_g2_x_dict_conv = self.conv_pass(batch_g2_x_dict, batch_g2_edge_index_dict)
 
         #更新为卷积后的特征
-        batch_g1['inst']['x']=batch_g1_x_dict_conv['inst']
-        batch_g2['inst']['x']=batch_g2_x_dict_conv['inst']
-        batch_g1['data']['x']=batch_g1_x_dict_conv['data']
-        batch_g2['data']['x']=batch_g2_x_dict_conv['data']
+        batch_g1['inst'].x=batch_g1_x_dict_conv['inst']
+        batch_g1['data'].x=batch_g1_x_dict_conv['data']
+        batch_g2['inst'].x=batch_g2_x_dict_conv['inst']
+        batch_g2['data'].x=batch_g2_x_dict_conv['data']
+        batch_g1.x_dict=batch_g1_x_dict_conv
+        batch_g2.x_dict=batch_g2_x_dict_conv
 
+        batch_homo_g1=batch_g1.to_homogeneous(edge_attrs=['edge_attr'])
+        batch_homo_g1.x, batch_homo_g1.edge_index, batch_homo_g1.edge_attr, batch_homo_g1.batch, _, _ = self.pooling(batch_homo_g1.x, batch_homo_g1.edge_index.cuda(), batch_homo_g1.edge_attr.cuda(), batch_homo_g1.batch.cuda())
+        batch_homo_g2=batch_g2.to_homogeneous(edge_attrs=['edge_attr'])
+        batch_homo_g2.x, batch_homo_g2.edge_index, batch_homo_g2.edge_attr, batch_homo_g2.batch, _, _ = self.pooling(batch_homo_g2.x, batch_homo_g2.edge_index.cuda(), batch_homo_g2.edge_attr.cuda(), batch_homo_g2.batch.cuda())
+ 
+        #global_attention 
+        batch_homo_g1_gatt_x=self.global_att(batch_homo_g1)
+        batch_homo_g2_gatt_x=self.global_att(batch_homo_g2)
 
+        batch_homo_g1_concat = torch.cat([batch_homo_g1.x, batch_homo_g1_gatt_x], dim=1)
+        batch_homo_g2_concat = torch.cat([batch_homo_g2.x, batch_homo_g2_gatt_x], dim=1)
 
-        batch_g1_homo = batch_g1.to_homogeneous()
-        batch_g2_homo = batch_g2.to_homogeneous()
+        batch_global_g1 = global_add_pool(batch_homo_g1_concat, batch_homo_g1.batch)
+        batch_global_g2 = global_add_pool(batch_homo_g2_concat, batch_homo_g2.batch)
 
+        cosine_similarities = F.cosine_similarity(batch_global_g1, batch_global_g2, dim=1)
 
+          
+        return cosine_similarities
 
-        #这里用同构图pooling层
-        #batch_g1_homo.x=self.att(batch_g1_homo.x)
-        #batch_g2_homo.x=self.att(batch_g2_homo.x)
-        batch_g1_homo.x=self.pooling(batch_g1_homo.x,batch_g1_homo.edge_index.cuda(),batch_g1_homo.batch.cuda())
-        batch_g2_homo.x=self.pooling(batch_g2_homo.x,batch_g2_homo.edge_index.cuda(),batch_g2_homo.batch.cuda())
-
-        batch_g1_global_x=global_add_pool(batch_g1_homo.x, batch_g1_homo.batch.cuda())
-        batch_g2_global_x=global_add_pool(batch_g2_homo.x, batch_g2_homo.batch.cuda())
-
-        global_scores = self.tensor_network(batch_g1_global_x, batch_g2_global_x)  
-        
-        #得到节点所属的图索引
-        batch_indices_g1 = batch_g1_homo.batch  
-        batch_indices_g2 = batch_g2_homo.batch  
-
-        num_graphs = batch_indices_g1.max().item() + 1
-
-        hist_list=[]
-        for graph_idx in range(num_graphs):
-            node_mask_g1 = (batch_indices_g1 == graph_idx)
-            node_mask_g2 = (batch_indices_g2 == graph_idx)
-
-            # 提取当前图的节点特征
-            node_features_g1 = batch_g1_homo.x[node_mask_g1]
-            node_features_g2 = batch_g2_homo.x[node_mask_g2]
-
-            hist=self.calculate_histogram_blockwise(node_features_g1,node_features_g2)
-            hist_list.append(hist)
-
-
-        result_list = []
-
-        # 遍历 scores 和 hist 列表，进行逐个处理
-        for score, hist in zip(global_scores, hist_list):
-            score = score.view(1, -1)
-            score = torch.cat((score, hist), dim=1).view(1, -1)
-
-            score = torch.nn.functional.relu(self.fully_connected_first(score))
-            scaling_factor = 0.1  
-            score = score * scaling_factor  
-            score = torch.sigmoid(self.scoring_layer(score)) #值太大了 导致输出都是1
-
-            result_list.append(score)
-
-        return result_list
+#        global_scores = self.tensor_network(batch_g1_global_x, batch_g2_global_x)  
+#        
+#        #得到节点所属的图索引
+#        batch_indices_g1 = batch_g1_homo.batch  
+#        batch_indices_g2 = batch_g2_homo.batch  
+#
+#        num_graphs = batch_indices_g1.max().item() + 1
+#
+#        hist_list=[]
+#        for graph_idx in range(num_graphs):
+#            node_mask_g1 = (batch_indices_g1 == graph_idx)
+#            node_mask_g2 = (batch_indices_g2 == graph_idx)
+#
+#            # 提取当前图的节点特征
+#            node_features_g1 = batch_g1_homo.x[node_mask_g1]
+#            node_features_g2 = batch_g2_homo.x[node_mask_g2]
+#
+#            hist=self.calculate_histogram_blockwise(node_features_g1,node_features_g2)
+#            hist_list.append(hist)
+#
+#
+#        result_list = []
+#
+#        # 遍历 scores 和 hist 列表，进行逐个处理
+#        for score, hist in zip(global_scores, hist_list):
+#            score = score.view(1, -1)
+#            score = torch.cat((score, hist), dim=1).view(1, -1)
+#
+#            score = torch.nn.functional.relu(self.fully_connected_first(score))
+#            scaling_factor = 0.1  
+#            score = score * scaling_factor  
+#            score = torch.sigmoid(self.scoring_layer(score)) #值太大了 导致输出都是1
+#
+#            result_list.append(score)
+#
+#        return result_list
 
 
 
@@ -432,6 +439,7 @@ class BinSimGNNTrainer(object):
             load_dict=self.load()
             start_epoch=load_dict['epoch']+1
             best_metric=load_dict['metric']
+            print('best_metrci: ',best_metric)
 
         self.model.train()
 
