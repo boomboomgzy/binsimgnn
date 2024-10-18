@@ -3,6 +3,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch
+
+
+
+
+
+
+    
 
 
 class TensorNetworkModule(torch.nn.Module):
@@ -60,5 +68,7 @@ class TensorNetworkModule(torch.nn.Module):
         )         
         scores = F.relu(scoring + block_scoring + self.bias.view(-1))
         return scores
+
+
 
 

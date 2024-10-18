@@ -20,18 +20,18 @@ def parameter_parser():
 
     parser.add_argument("--epochs",
                         type=int,
-                        default=50,
+                        default=100,
 	                help="Number of training epochs.")
 
     parser.add_argument("--tensor-neurons",
                         type=int,
-                        default=32,
-	                help="Neurons in tensor network layer. Default is 16.") #NTN中W切片的数量
+                        default=16,
+	                help="Neurons in tensor network layer. ") #NTN中W切片的数量
 
     parser.add_argument("--bottle-neck-neurons",
                         type=int,
-                        default=32,
-	                help="Bottle neck layer neurons. Default is 16.")
+                        default=16,
+	                help="Bottle neck layer neurons.")
 
     parser.add_argument("--num_layers",
                     type=int,
@@ -46,18 +46,18 @@ def parameter_parser():
 
     parser.add_argument("--heads",
                     type=int,
-                    default=2,
+                    default=3,
                 help="attention heads")
     
     parser.add_argument("--batch-pairs-size",  
                         type=int,
-                        default=4,
-	                help="一个batch中图对的个数,必须是偶数(正负对各一半)")
+                        default=5,
+	                help="一个batch中图对的个数")
 
     parser.add_argument("--bins",
                         type=int,
                         default=32,
-	                help="Similarity score bins. Default is 16.")
+	                help="Similarity score bins.")
 
     parser.add_argument("--dropout",
                         type=float,
@@ -66,7 +66,7 @@ def parameter_parser():
 
     parser.add_argument("--learning-rate",
                         type=float,
-                        default=0.001,
+                        default=0.0005,
 	                help="initial Learning rate. ")
 
     parser.add_argument("--weight-decay",

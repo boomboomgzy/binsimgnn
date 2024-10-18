@@ -24,6 +24,7 @@ def tab_printer(args):
     t.add_rows([[k.replace("_", " ").capitalize(), args[k]] for k in keys])
     print(t.draw())
 
+
 def ir_validation(ir_string):
     binding.initialize()
     binding.initialize_native_target()
