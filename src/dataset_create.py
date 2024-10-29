@@ -1,7 +1,8 @@
 import programl
+import json
 import os
 import torch
-from torch_geometric.data import HeteroData
+from torch_geometric.data import Data
 from programl.proto import ProgramGraph
 from typing import Iterable, Optional, Union
 from programl.util.py.executor import ExecutorLike, execute
@@ -12,11 +13,16 @@ import re
 from programl.proto import program_graph_pb2
 from collections import defaultdict
 import itertools
-from utils import remove_metadata_comma_align,ir_validation,inst_node_isvalid,collect_heteroG_files,normalize_inst
+from utils import remove_metadata_comma_align,ir_validation,inst_node_isvalid,collect_homoG_files,normalize_inst
 
-prop_threads=10 #不要开太大  不然内存占用会偏大
+prop_threads=20 #不要开太大  不然内存占用会偏大
 
 
+homoG_edge_type_dict={
+    'call':0,
+    'control':1
+}
+homoG_edge_type_count=2
 
 def programG2pyg(
     graphs: Union[ProgramGraph, Iterable[ProgramGraph]],
@@ -25,24 +31,19 @@ def programG2pyg(
     chunksize: Optional[int] = None,
 ) -> None:
 
-
-            
+    #homoG version
     def _run_one(graph: ProgramGraph) -> None:
 
             # 4 lists, one per edge type
         # (control,input,output,call) control:inst->inst  input:data->inst output:inst->data   call:inst->inst
             edge_index = [[], [], [],[]] 
-            edge_positions = [[], [], [],[]]
+            #edge_positions = [[], [], [],[]]
             # 2 node type: data instruction
             data_nodes=[]
             inst_nodes=[]
             data_node_index_map={}
             inst_node_index_map={}
             unvalid_inst_nodes_global_idx=[]
-
-            function_dict={}
-            for function in graph.function:
-                function_dict[function.name]={'data':[],'inst':[]}
 
 
             for global_idx,node in enumerate(graph.node):
@@ -51,7 +52,6 @@ def programG2pyg(
                         inst_nodes.append(node)
                         inst_idx=len(inst_nodes)-1
                         inst_node_index_map[str(global_idx)]=inst_idx
-                        function_dict[graph.function[node.function].name]['inst'].append(inst_idx)
                     else:
                         unvalid_inst_nodes_global_idx.append(global_idx)
                 elif node.type==3:
@@ -60,7 +60,6 @@ def programG2pyg(
                     data_nodes.append(node)
                     data_idx=len(data_nodes)-1
                     data_node_index_map[str(global_idx)]=data_idx
-                    function_dict[graph.function[node.function].name]['data'].append(data_idx)
 
 
             # Create the adjacency lists and the positions
@@ -88,47 +87,125 @@ def programG2pyg(
                 else: 
                     pass
                 #边和position一一对应
-                edge_positions[t].append(edge.position)
+                #edge_positions[t].append(edge.position)
 
 
             # Pass from list to tensor
 
             edge_index = [torch.tensor(ej) for ej in edge_index]
-            edge_positions = [torch.tensor(edge_pos_flow_type) for edge_pos_flow_type in edge_positions]
 
+            #创建同构图  inst->inst 使用数字编号来区分边类型
+            global homoG_edge_type_count
 
             # Create the graph structure
-            hetero_graph = HeteroData()
+            inst_control_inst_edge_index=edge_index[0].T.contiguous()            
+            data_input_inst_edge_index=edge_index[1].T.contiguous()            
+            inst_output_data_edge_index=edge_index[2].T.contiguous()            
+            inst_call_inst_edge_index=edge_index[3].T.contiguous()            
+
+            #边索引去重处理
+            inst_control_inst_edge_index = torch.unique(inst_control_inst_edge_index.T, dim=0).T
+            data_input_inst_edge_index = torch.unique(data_input_inst_edge_index.T, dim=0).T
+            inst_output_data_edge_index = torch.unique(inst_output_data_edge_index.T, dim=0).T
+            inst_call_inst_edge_index = torch.unique(inst_call_inst_edge_index.T, dim=0).T
 
 
-            # Add the adjacency lists
-            hetero_graph['inst', 'control', 'inst'].edge_index = edge_index[0].T.contiguous()
-            hetero_graph['data', 'input', 'inst'].edge_index = edge_index[1].T.contiguous()
-            hetero_graph['inst', 'output', 'data'].edge_index = edge_index[2].T.contiguous()
-            hetero_graph['inst', 'call', 'inst'].edge_index = edge_index[3].T.contiguous()
+            homoG_edge_index=[]
+            homoG_edge_attr=[]
 
-            # Add the edge positions
-            hetero_graph['inst', 'control', 'inst'].edge_attr = edge_positions[0]
-            hetero_graph['data', 'input', 'inst'].edge_attr = edge_positions[1]
-            hetero_graph['inst', 'output', 'data'].edge_attr = edge_positions[2]
-            hetero_graph['inst', 'call', 'inst'].edge_attr = edge_positions[3]
+            #contral edge and call edge  add directly
+            homoG_edge_index.append(inst_control_inst_edge_index)
+            homoG_edge_index.append(inst_call_inst_edge_index)
+            homoG_edge_attr.extend([1] * inst_control_inst_edge_index.shape[1])  # 控制流边
+            homoG_edge_attr.extend([0] * inst_call_inst_edge_index.shape[1])    # 调用边
+
+            data_to_inst_dict = {}
+            for i in range(data_input_inst_edge_index.size(1)):
+                data_idx = data_input_inst_edge_index[0, i].item()  
+                inst_idx = data_input_inst_edge_index[1, i].item()  
+                if data_idx not in data_to_inst_dict:
+                    data_to_inst_dict[data_idx] = []
+                data_to_inst_dict[data_idx].append(inst_idx)  # 记录该data节点指向的所有inst节点
+
+            matched_data_inst_edges = set()
+            #unmatched_data_inst_edges = set()
+
+            inst_to_inst_dataflow_edge_index=[]
+            for i in range(inst_output_data_edge_index.size(1)):
+                data_idx = inst_output_data_edge_index[1, i].item()  
+                inst_idx = inst_output_data_edge_index[0, i].item()  
+                #data=
+                if data_idx in data_to_inst_dict:
+                    # 若找到相应的 data -> inst，生成 inst -> inst 边
+                    for target_inst_idx in data_to_inst_dict[data_idx]:
+                        inst_to_inst_dataflow_edge_index.append([inst_idx, target_inst_idx])
+                        matched_data_inst_edges.add((data_idx,target_inst_idx))
+                        
+
+                else:
+                    # 未找到相应的 data -> inst,  这条inst->data边是孤立的
+                    #则 inst->external
+                        inst_to_inst_dataflow_edge_index.append([inst_idx, 0])
+
+                #添加这条边的边属性        
+                edge_type=data_nodes[data_idx].text
+                if edge_type in homoG_edge_type_dict:
+                    edge_value = homoG_edge_type_dict[edge_type]
+                else:
+                    homoG_edge_type_dict[edge_type] = homoG_edge_type_count
+                    edge_value = homoG_edge_type_count
+                    homoG_edge_type_count += 1
             
-            
-            hetero_graph.function_dict=function_dict
+                homoG_edge_attr.append(edge_value)           
+        
+        
+        
+        #data_input_inst_edge_index_set=set()
+
+            for i in range(data_input_inst_edge_index.size(1)):
+                data_idx = data_input_inst_edge_index[0, i].item()
+                inst_idx = data_input_inst_edge_index[1, i].item()
+                edge = (data_idx, inst_idx)
+                #data_input_inst_edge_index_set.add(edge)
+                # 检查该边是否在 matched_edges_set 中
+                if edge not in matched_data_inst_edges:
+                    #处理 孤立的 data->inst 边
+                    #unmatched_data_inst_edges.add(edge)
+                    inst_to_inst_dataflow_edge_index.append([0,inst_idx])
+                    edge_type=data_nodes[data_idx].text
+                    if edge_type in homoG_edge_type_dict:
+                        edge_value = homoG_edge_type_dict[edge_type]
+                    else:
+                        homoG_edge_type_dict[edge_type] = homoG_edge_type_count
+                        edge_value = homoG_edge_type_count
+                        homoG_edge_type_count += 1
+
+                    homoG_edge_attr.append(edge_value)
+
+
+
+            inst_to_inst_dataflow_edge_index=torch.tensor(inst_to_inst_dataflow_edge_index)        
+            homoG_edge_index.append(inst_to_inst_dataflow_edge_index.T.contiguous())
+            homoG_edge_index = torch.cat(homoG_edge_index, dim=1)
+            homoG_edge_attr=torch.tensor(homoG_edge_attr)
+
+            # 构建同构图
+            homoG = Data()
+            homoG.edge_index = homoG_edge_index
+            homoG.edge_attr = homoG_edge_attr
 
             #subdir_binname  作为图的label 如果相同则相似 否则不相似
-            heteroG_file_path=graph.module[-1].name
-            match=re.search(r'O[0-3sfast]+_(.*?)\.strip', heteroG_file_path)
+            homoG_file_path=graph.module[-1].name
+            match=re.search(r'O[0-3sfast]+_(.*?)\.strip', homoG_file_path)
             bin_name=match.group(1)
-            subdir=os.path.basename(os.path.dirname(heteroG_file_path))
-            hetero_graph.g_label=subdir+'_'+bin_name
+            subdir=os.path.basename(os.path.dirname(homoG_file_path))
+            homoG.g_label=subdir+'_'+bin_name
             
-            #保存heteroG
-            heteroG_subdir_path=os.path.dirname(heteroG_file_path)
-            os.makedirs(heteroG_subdir_path,exist_ok=True)
+            #保存homoG
+            homoG_subdir_path=os.path.dirname(homoG_file_path)
+            os.makedirs(homoG_subdir_path,exist_ok=True)
 
-            torch.save(hetero_graph,heteroG_file_path)
-
+            torch.save(homoG,homoG_file_path)
 
     if isinstance(graphs, ProgramGraph):
         _run_one(graphs)
@@ -167,19 +244,19 @@ def ir_file_preprocess(ll_file_path,log_dir,save_dir):
 
 
 #预处理后的IR
-def ll2programl(ll_file_dir,ir_programl_dir,heteroG_save_dir):
+def ll2programl(ll_file_dir,ir_programl_dir,homoG_save_dir):
 
     for subdir in os.listdir(ll_file_dir): 
-        heteroG_file_path_list=[] #保存的heteroG 的pth文件
+        homoG_file_path_list=[] #保存的homoG 的pth文件
         sub_dir_path = os.path.join(ll_file_dir, subdir)
         ll_file_path_list=[] #当前subdir下所有ll_file
-        heteroG_save_sub_dir_path=os.path.join(heteroG_save_dir,subdir)
-        os.makedirs(heteroG_save_sub_dir_path,exist_ok=True)
+        homoG_save_sub_dir_path=os.path.join(homoG_save_dir,subdir)
+        os.makedirs(homoG_save_sub_dir_path,exist_ok=True)
         for ll_file in os.listdir(sub_dir_path):
             ll_file_path=os.path.join(sub_dir_path,ll_file)
             ll_file_name=os.path.splitext(os.path.basename(ll_file_path))[0]
             ll_file_path_list.append(ll_file_path)
-            heteroG_file_path_list.append(os.path.join(heteroG_save_sub_dir_path,ll_file_name+'.pth'))
+            homoG_file_path_list.append(os.path.join(homoG_save_sub_dir_path,ll_file_name+'.pth'))
 
         ir_programls=None        
 
@@ -206,16 +283,16 @@ def ll2programl(ll_file_dir,ir_programl_dir,heteroG_save_dir):
                             node.text=node_text  #node.text 修改为归一化后的full_text 
             
             new_module = program_graph_pb2.Module()
-            new_module.name = heteroG_file_path_list[id]
+            new_module.name = homoG_file_path_list[id]
             ir_prog.module.append(new_module)
-            file_name=os.path.splitext(os.path.basename(heteroG_file_path_list[id]))[0]
+            file_name=os.path.splitext(os.path.basename(homoG_file_path_list[id]))[0]
             prog_save_path=os.path.join(prog_save_sub_dir,file_name+'.prog')
 
             programl.save_graphs(prog_save_path,[ir_prog])
 
 
 #ll_file_dir为预处理过的IR所在目录
-def programl2heteroG(ir_programl_dir):
+def programl2homoG(ir_programl_dir):
 
     def load_prog_data(ir_programl_dir):
     
@@ -270,14 +347,14 @@ def prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir):
 
 
 
-def build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size):
+def build_dataset(homoG_save_dir,homoG_dataset_dir,dataset_size):
     
-    heteroG_files=collect_heteroG_files(heteroG_save_dir)
+    homoG_files=collect_homoG_files(homoG_save_dir)
 
 
 
     g_label_to_files = defaultdict(list)
-    for file in heteroG_files:
+    for file in homoG_files:
         match=re.search(r'O[0-3sfast]+_(.*?)\.strip', file)
         bin_name=match.group(1)
         subdir=os.path.basename(os.path.dirname(file))
@@ -326,9 +403,9 @@ def build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size):
     }
 
 
-    train_file = os.path.join(heteroG_dataset_dir, 'train.pth')
-    test_file = os.path.join(heteroG_dataset_dir, 'test.pth')
-    valid_file = os.path.join(heteroG_dataset_dir, 'valid.pth')
+    train_file = os.path.join(homoG_dataset_dir, 'train.pth')
+    test_file = os.path.join(homoG_dataset_dir, 'test.pth')
+    valid_file = os.path.join(homoG_dataset_dir, 'valid.pth')
 
     torch.save(train_pairs, train_file)
     torch.save(test_pairs, test_file)
@@ -346,23 +423,22 @@ if __name__=='__main__':
 
     if debug:
         ll_file_dir=os.path.join(save_dir,'test_IR')
-        heteroG_save_dir=os.path.join(save_dir,'test_heteroG')
+        homoG_save_dir=os.path.join(save_dir,'test_homoG')
         prep_log_dir=os.path.join(save_dir,'test_invalid_IR')
         prep_save_dir=os.path.join(save_dir,'test_preprocessed_IR')
         ir_programl_dir=os.path.join(save_dir,'test_ir_programl')
-        vocab_dir=os.path.join(root,'test_vocab')
-        heteroG_dataset_dir=os.path.join(root,'debug_heteroG_dataset')
+        homoG_dataset_dir=os.path.join(root,'debug_homoG_dataset')
+        edge_type_file_path=os.path.join(save_dir,'debug_homoG_edge_type.json')
 
     else:
         if small_dataset:
             ll_file_dir=os.path.join(save_dir,'binkit_small_IR')
-            heteroG_save_dir=os.path.join(save_dir,'binkit_small_heteroG')
+            homoG_save_dir=os.path.join(save_dir,'binkit_small_homoG')
             prep_log_dir=os.path.join(save_dir,'binkit_small_invalid_IR')
             prep_save_dir=os.path.join(save_dir,'binkit_small_preprocessed_IR')
             ir_programl_dir=os.path.join(save_dir,'binkit_small_ir_programl')
-            vocab_dir=os.path.join(root,'binkit_small_vocab')
-            heteroG_dataset_dir=os.path.join(root,'binkit_small_heteroG_dataset')
- 
+            homoG_dataset_dir=os.path.join(root,'binkit_small_homoG_dataset')
+            edge_type_file_path=os.path.join(save_dir,'binkit_small_homoG_edge_type.json')
         else:         
             print('please choose a dataset')   
             sys.exit(1)
@@ -370,18 +446,21 @@ if __name__=='__main__':
 
 
 
-    os.makedirs(heteroG_save_dir, exist_ok=True)
+    os.makedirs(homoG_save_dir, exist_ok=True)
     os.makedirs(prep_log_dir, exist_ok=True)
     os.makedirs(prep_save_dir, exist_ok=True)
-    os.makedirs(heteroG_dataset_dir,exist_ok=True)
+    os.makedirs(homoG_dataset_dir,exist_ok=True)
     os.makedirs(ir_programl_dir,exist_ok=True)
-    os.makedirs(vocab_dir,exist_ok=True)
 
 
     #prep_ir_file(ll_file_dir,prep_save_dir,prep_log_dir)
 
-    #ll2programl(prep_save_dir,ir_programl_dir,heteroG_save_dir)
+    #ll2programl(prep_save_dir,ir_programl_dir,homoG_save_dir)
 
-    #programl2heteroG(ir_programl_dir)
+    programl2homoG(ir_programl_dir)
 
-    build_dataset(heteroG_save_dir,heteroG_dataset_dir,dataset_size)
+    #保存边类型词典
+    with open(edge_type_file_path, 'w') as file:
+        json.dump(homoG_edge_type_dict, file)
+
+    build_dataset(homoG_save_dir,homoG_dataset_dir,dataset_size)

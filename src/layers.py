@@ -1,74 +1,82 @@
 """Classes for SimGNN modules."""
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from typing import Any, Dict, Optional
+
 import torch
+from torch.nn import (
+    BatchNorm1d,
+    Embedding,
+    Linear,
+    ModuleList,
+    ReLU,
+    Sequential,
+)
+
+from torch_geometric.nn import GINEConv, GPSConv, global_add_pool
+from torch_geometric.nn.attention import PerformerAttention
 
 
 
+# channel=node_embedding_dim+pe_dim
+class GPS(torch.nn.Module):
+    def __init__(self, channels: int, pe_dim: int, num_layers: int, heads: int, 
+                 attn_type: str, attn_kwargs: Dict[str, Any]):
+        super().__init__()
 
+        self.pe_lin = Linear(10, pe_dim)
+        self.pe_norm = BatchNorm1d(10)
+        self.edge_emb = Embedding(215, channels)
 
-
+        self.convs = ModuleList()
+        for _ in range(num_layers):
+            nn = Sequential(
+                Linear(channels, channels),
+                ReLU(),
+                Linear(channels, channels),
+            )
+            conv = GPSConv(channels, GINEConv(nn), heads=heads,
+                           attn_type=attn_type, attn_kwargs=attn_kwargs)
+            self.convs.append(conv)
+        #redraw_interval==0 每次调用都会重绘
+        self.redraw_projection = RedrawProjection(self.convs,redraw_interval=0 if attn_type == 'performer' else None)
     
+    def forward(self, x, pe, edge_index, edge_attr, batch):
 
 
-class TensorNetworkModule(torch.nn.Module):
-    """
-    SimGNN Tensor Network module to calculate similarity vector.
-    """
+        x_pe = self.pe_norm(pe)
+        x = torch.cat((x, self.pe_lin(x_pe)), dim=1)
+        edge_attr = self.edge_emb(edge_attr)
 
-    def __init__(self, args):
-        """
-        :param args: Arguments object.
-        """
-        super(TensorNetworkModule, self).__init__()
-        self.args = args
-        self.setup_weights()
-        self.init_parameters()
+        for conv in self.convs:
+            x = conv(x, edge_index, batch, edge_attr=edge_attr)
+        x = global_add_pool(x, batch)
+        return x
 
-    def setup_weights(self):
-        """
-        Defining weights.
-        """
-        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.args.hidden_dim*self.args.heads,
-                                                             self.args.hidden_dim*self.args.heads,
-                                                             self.args.tensor_neurons))
 
-        self.weight_matrix_block = torch.nn.Parameter(torch.Tensor(self.args.tensor_neurons,
-                                                                   2*self.args.hidden_dim*self.args.heads))
-        self.bias = torch.nn.Parameter(torch.Tensor(self.args.tensor_neurons, 1))
+class RedrawProjection:
+    def __init__(self, model: torch.nn.Module,
+                 redraw_interval: Optional[int] = None):
+        self.model = model
+        self.redraw_interval = redraw_interval
+        self.num_last_redraw = 0
 
-    def init_parameters(self):
-        """
-        Initializing weights.
-        """
-        torch.nn.init.xavier_uniform_(self.weight_matrix)
-        torch.nn.init.xavier_uniform_(self.weight_matrix_block)
-        torch.nn.init.xavier_uniform_(self.bias)
-
-    def forward(self, embedding_1, embedding_2):
-        """
-        Making a forward propagation pass to create a similarity vector.
-        :param embedding_1: Result of the 1st embedding after attention.
-        :param embedding_2: Result of the 2nd embedding after attention.
-        :return scores: A similarity score vector.
-        """
-        batch_size = len(embedding_1)
-        scoring = torch.matmul(
-            embedding_1, self.weight_matrix.view(self.args.hidden_dim*self.args.heads, -1)
-        )
-        scoring = scoring.view(batch_size, self.args.hidden_dim*self.args.heads, -1).permute([0, 2, 1]) 
-        scoring = torch.matmul(
-            scoring, embedding_2.view(batch_size, self.args.hidden_dim*self.args.heads, 1)
-        ).view(batch_size, -1)
-        combined_representation = torch.cat((embedding_1, embedding_2), 1)
-        block_scoring = torch.t(
-            torch.mm(self.weight_matrix_block, torch.t(combined_representation))
-        )         
-        scores = F.relu(scoring + block_scoring + self.bias.view(-1))
-        return scores
-
+    def redraw_projections(self):
+        if not self.model.training or self.redraw_interval is None:
+            return
+        if self.num_last_redraw >= self.redraw_interval:
+            #redraw
+            fast_attentions = [
+                module for module in self.model.modules()
+                if isinstance(module, PerformerAttention)
+            ]
+            for fast_attention in fast_attentions:
+                fast_attention.redraw_projection_matrix()
+            self.num_last_redraw = 0
+            print('projections has been redraw !')
+            return
+        self.num_last_redraw += 1
 
 
 

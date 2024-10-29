@@ -9,7 +9,18 @@ import os
 from gensim.models import Word2Vec,FastText
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
+import torch_geometric.transforms as T
 
+
+pe_transform = T.AddRandomWalkPE(walk_length=10, attr_name='pe')
+
+def to_cuda(batch_g):
+    batch_g.x=batch_g.x.cuda()
+    batch_g.pe=batch_g.pe.cuda()
+    batch_g.edge_index=batch_g.edge_index.cuda()
+    batch_g.edge_attr=batch_g.edge_attr.cuda()
+    batch_g.batch=batch_g.batch.cuda()
+    return batch_g
 
 def tab_printer(args):
     """
@@ -80,14 +91,10 @@ class BatchProgramlCorpus:
                     if node.type==0:
                         if inst_node_isvalid(node):#只收集有效inst节点的token
                                 yield node.text.split()
-                    elif node.type==3:
-                        pass
-                    else:
-                        yield [node.text]
-                
 
 
-def collect_heteroG_files(root_dir):
+
+def collect_homoG_files(root_dir):
     for subdir, _, files in os.walk(root_dir):
         for file in files:
             if file.endswith('.pth'):
@@ -105,14 +112,18 @@ def collect_programl_files(root_dir):
 
 
 
-def init_nodevector(ir_programl_dir,heteroG_save_dir,corpus_model_path,corpus_vec_path,prop_threads,vector_log_file):
+def init_nodevector(ir_programl_dir,homoG_save_dir,corpus_model_path,corpus_vec_path,prop_threads,vector_log_file):
 
-    #先生成vocab
+    #继续训练
+    #model = FastText.load(corpus_model_path)
+    #model.epochs=5
+    
+    #重头开始  先生成vocab
     model = FastText(
     vector_size=64,   
     window=10,             
     min_count=1,          
-    epochs=5,            
+    epochs=8,            
     min_n=2,              
     max_n=6,             
     word_ngrams=1,
@@ -129,39 +140,33 @@ def init_nodevector(ir_programl_dir,heteroG_save_dir,corpus_model_path,corpus_ve
 
 
     #归一化词向量
-    #for word in model.wv.key_to_index:
-    #    model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
+    for word in model.wv.key_to_index:
+        model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
 
     model.save(corpus_model_path)#.model可以用于继续训练
     model.wv.save_word2vec_format(corpus_vec_path)
 
-    #这里可以多线程
-    #为每个异构图初始化节点向量
-    heteroG_files=collect_heteroG_files(heteroG_save_dir)
-    for heteroG_file in heteroG_files:
-        heteroG=torch.load(heteroG_file)
-        programl_file_sub_dir=os.path.basename(os.path.dirname(heteroG_file))
-        programl_file_name = os.path.basename(heteroG_file).replace('.pth', '.prog')
+    #为每个图初始化节点向量
+    homoG_files=collect_homoG_files(homoG_save_dir)
+    for homoG_file in homoG_files:
+        homoG=torch.load(homoG_file)
+        programl_file_sub_dir=os.path.basename(os.path.dirname(homoG_file))
+        programl_file_name = os.path.basename(homoG_file).replace('.pth', '.prog')
         programl_file_path=os.path.join(ir_programl_dir,programl_file_sub_dir,programl_file_name)
         programl_graph=programl.load_graphs(programl_file_path)[0]
         
-        data_nodes=[]
         inst_nodes=[]
         #根据node.text初始化节点特征向量
         inst_features=[]
-        data_features=[]
 
         for node in programl_graph.node:
             if node.type==0:
                 if inst_node_isvalid(node):
                     inst_nodes.append(node)
-            elif node.type==3:
-                pass
-            else:
-                data_nodes.append(node)
 
-        #记录每个节点的向量
-        v_file=open(vector_log_file,'w') 
+
+        #记录每个节点的向量 不要每个文件都记录 否则会很大
+        #v_file=open(vector_log_file,'w') 
 
         for node in inst_nodes:
             inst=node.text
@@ -170,29 +175,14 @@ def init_nodevector(ir_programl_dir,heteroG_save_dir,corpus_model_path,corpus_ve
             node_vector=np.sum(token_vectors, axis=0)
             #node_vector=np.mean(token_vectors,axis=0)
             inst_features.append(node_vector)
-            str_node_vector='['+','.join(map(str, node_vector))+']'
-            v_file.write(f"{inst} : {str_node_vector}\n") 
+            #str_node_vector='['+','.join(map(str, node_vector))+']'
+            #v_file.write(f"{inst} : {str_node_vector}\n") 
+        
+        #v_file.close()
+        homoG.x= torch.tensor(np.array(inst_features), dtype=torch.float)
+        
+        #add  pe
+        homoG=pe_transform(homoG)
 
-        for node in data_nodes:
-            data=node.text
-            node_vector=model.wv[data]
-            data_features.append(node_vector)
-            str_node_vector='['+','.join(map(str, node_vector))+']'
-            v_file.write(f"{data} : {str_node_vector}\n")
-
-        v_file.close()
-        # x_dict 和 x 最后都要同时手动更新 
-        heteroG['inst'].x= torch.tensor(np.array(inst_features), dtype=torch.float)
-        heteroG['data'].x= torch.tensor(np.array(data_features), dtype=torch.float)
-        heteroG.x_dict={
-            'inst': heteroG['inst'].x,
-            'data': heteroG['data'].x
-            }
-
-        #初始化完后可以删除heteroG.programl_graph
-        if hasattr(heteroG, 'programl_graph'):
-            delattr(heteroG, 'programl_graph')
-
-        torch.save(heteroG, heteroG_file)
-
+        torch.save(homoG, homoG_file)
 

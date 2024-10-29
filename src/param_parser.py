@@ -10,12 +10,12 @@ def parameter_parser():
     parser = argparse.ArgumentParser(description="Run SimGNN.")
     parser.add_argument("--debug-dataset",
                         nargs="?",
-                        default="/home/ouyangchao/binsimgnn/debug_heteroG_dataset",
+                        default="/home/ouyangchao/binsimgnn/debug_homoG_dataset",
 	                help="Folder with debug_dataset")
     
     parser.add_argument("--dataset",
                         nargs="?",
-                        default="/home/ouyangchao/binsimgnn/binkit_small_heteroG_dataset",
+                        default="/home/ouyangchao/binsimgnn/binkit_small_homoG_dataset",
 	                help="Folder with dataset")
 
     parser.add_argument("--epochs",
@@ -23,15 +23,6 @@ def parameter_parser():
                         default=100,
 	                help="Number of training epochs.")
 
-    parser.add_argument("--tensor-neurons",
-                        type=int,
-                        default=16,
-	                help="Neurons in tensor network layer. ") #NTN中W切片的数量
-
-    parser.add_argument("--bottle-neck-neurons",
-                        type=int,
-                        default=16,
-	                help="Bottle neck layer neurons.")
 
     parser.add_argument("--num_layers",
                     type=int,
@@ -51,27 +42,29 @@ def parameter_parser():
     
     parser.add_argument("--batch-pairs-size",  
                         type=int,
-                        default=5,
+                        default=2,
 	                help="一个batch中图对的个数")
 
-    parser.add_argument("--bins",
-                        type=int,
-                        default=32,
-	                help="Similarity score bins.")
+
+    parser.add_argument("--attn_type",
+                        type=str,
+                        default='performer',
+	                help="Global attention type such as 'multihead' or 'performer' ")
+
 
     parser.add_argument("--dropout",
                         type=float,
                         default=0.5,
-	                help="Dropout probability. Default is 0.5.")
+	                help="Dropout probability.")
 
     parser.add_argument("--learning-rate",
                         type=float,
-                        default=0.0005,
+                        default=0.001,
 	                help="initial Learning rate. ")
 
     parser.add_argument("--weight-decay",
                         type=float,
-                        default=5*10**-4,
+                        default=5*10**-6,
 	                help="Adam weight decay")
 
     parser.add_argument("--save-dir",
