@@ -294,7 +294,9 @@ def predit(args,predit_homoG_dir,predit_result_dir):
                 bin_name=file.rsplit('.strip.preprocessed.pth', 1)[0]
                 batch_g = Batch.from_data_list([homoG],exclude_keys=['g_label','pe'])
                 g_vec=model(batch_g)
-                result_file_path=os.path.join(predit_result_dir,bin_name+'.txt')
-                str_g_vector='['+','.join(map(str, g_vec.cpu().numpy().flatten()))+']'
-                with open(result_file_path, 'w') as file:
-                    file.write(str_g_vector)
+                #result_file_path=os.path.join(predit_result_dir,bin_name+'.txt')
+                result_file_path=os.path.join(predit_result_dir,bin_name+'.pth')
+                torch.save(g_vec.cpu(), result_file_path)
+                #str_g_vector='['+','.join(map(str, g_vec.cpu().numpy().flatten()))+']'
+                #with open(result_file_path, 'w') as file:
+                #    file.write(str_g_vector)

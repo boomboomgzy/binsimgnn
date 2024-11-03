@@ -3,7 +3,6 @@ binkit_small_homoG_dataset
 improve.txt
 src/test.py
 src/__pycache__
-src/mlruns
 ir2vec
 debug_homoG_dataset
 *model
@@ -18,3 +17,4 @@ binkit_test_bin*
 binkit_small_IR.tar
 predit_result
 predit_homoG_binkit_small_testset
+predit-pca.png
