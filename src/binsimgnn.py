@@ -1,19 +1,11 @@
 import torch
 import random
+import numpy
 from tqdm import tqdm, trange
 from torch import nn
 import torch.nn.functional as F
 import datetime
-from torch_geometric.nn import (
-    HGTConv,
-    GATConv,
-    GINConv,
-    SAGPooling,
-    ASAPooling,
-    global_add_pool,
-    GCNConv,
-)
-from torch_geometric.data import Batch,Data
+from torch_geometric.data import Batch
 import os
 from layers import GPS
 from utils import tab_printer,to_cuda
@@ -38,18 +30,24 @@ class BinSimGNN(torch.nn.Module):
         """
         attn_kwargs = {'dropout': self.args.dropout}
 
-        self.GPS = GPS(channels=64+8, pe_dim=8, num_layers=self.args.num_layers, heads=self.args.heads,attn_type=self.args.attn_type,
+        self.GPS = GPS(channels=64, pe_dim=0, num_layers=self.args.num_layers, heads=self.args.heads,attn_type=self.args.attn_type,
             attn_kwargs=attn_kwargs)
 
-    def forward(self, batch_g1,batch_g2):
-        batch_g1=to_cuda(batch_g1)
-        batch_g2=to_cuda(batch_g2)
-        batch_g1_g_vec=self.GPS(batch_g1.x,batch_g1.pe,batch_g1.edge_index,batch_g1.edge_attr,batch_g1.batch)
-        batch_g2_g_vec=self.GPS(batch_g2.x,batch_g2.pe,batch_g2.edge_index,batch_g2.edge_attr,batch_g2.batch)
+    #如果batch_g2==None  则是在做predit 
+    def forward(self, batch_g1,batch_g2=None):
+        if batch_g2 == None:
+            batch_g1=to_cuda(batch_g1)
+            batch_g1_g_vec=self.GPS(batch_g1.x,batch_g1.edge_index,batch_g1.edge_attr,batch_g1.batch)
+            return batch_g1_g_vec
+        else:
+            batch_g1=to_cuda(batch_g1)
+            batch_g2=to_cuda(batch_g2)
+            batch_g1_g_vec=self.GPS(batch_g1.x,batch_g1.edge_index,batch_g1.edge_attr,batch_g1.batch)
+            batch_g2_g_vec=self.GPS(batch_g2.x,batch_g2.edge_index,batch_g2.edge_attr,batch_g2.batch)
 
-        cosine_similarities = F.cosine_similarity(batch_g1_g_vec, batch_g2_g_vec, dim=1)
-          
-        return cosine_similarities
+            cosine_similarities = F.cosine_similarity(batch_g1_g_vec, batch_g2_g_vec, dim=1)
+            
+            return cosine_similarities
 
 
 
@@ -107,7 +105,8 @@ class BinSimGNNTrainer(object):
             batches.append(remaining_pairs)
 
         return batches
-#
+    
+
     def process_batch_g_pair(self, batch_g_pairs,mode):
         self.optimizer.zero_grad()  
         test_record_file_path=r'/home/ouyangchao/binsimgnn/test_record.txt'
@@ -124,8 +123,8 @@ class BinSimGNNTrainer(object):
 
         batch_g_labels = torch.tensor(batch_g_labels, dtype=torch.float).cuda()
 
-        batch_g1 = Batch.from_data_list(batch_g1_list,exclude_keys=['g_label'])
-        batch_g2 = Batch.from_data_list(batch_g2_list,exclude_keys=['g_label'])
+        batch_g1 = Batch.from_data_list(batch_g1_list,exclude_keys=['g_label','pe'])
+        batch_g2 = Batch.from_data_list(batch_g2_list,exclude_keys=['g_label','pe'])
 
 
         batch_g_sim = self.model(batch_g1,batch_g2)  
@@ -146,6 +145,8 @@ class BinSimGNNTrainer(object):
             self.optimizer.step()
 
         return batch_avg_loss_per_pair.detach().item()
+
+
 
 
     def fit(self):
@@ -239,6 +240,9 @@ class BinSimGNNTrainer(object):
             
             return loss_sum/g_pairs_num  #返回验证集/测试集中每对的平均loss
 
+
+
+
     def save(self,epoch,metric):
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")  # 时间格式: 年月日_时分秒
 
@@ -271,3 +275,26 @@ class BinSimGNNTrainer(object):
         }
         return rt
 
+
+def predit(args,predit_homoG_dir,predit_result_dir):
+    
+    model = BinSimGNN(args)
+            
+    model = model.cuda()  
+    checkpoint = torch.load(args.load_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    model.eval()
+
+    
+    with torch.no_grad():
+        for root, dirs, files in os.walk(predit_homoG_dir):
+            for file in files:
+                homoG=torch.load(os.path.join(root, file))
+                bin_name=file.rsplit('.strip.preprocessed.pth', 1)[0]
+                batch_g = Batch.from_data_list([homoG],exclude_keys=['g_label','pe'])
+                g_vec=model(batch_g)
+                result_file_path=os.path.join(predit_result_dir,bin_name+'.txt')
+                str_g_vector='['+','.join(map(str, g_vec.cpu().numpy().flatten()))+']'
+                with open(result_file_path, 'w') as file:
+                    file.write(str_g_vector)

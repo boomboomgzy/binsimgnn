@@ -13,3 +13,8 @@ bert_test
 test_record.txt
 zinc
 test_GPS.py
+*_test_record.txt
+binkit_test_bin*
+binkit_small_IR.tar
+predit_result
+predit_homoG_binkit_small_testset

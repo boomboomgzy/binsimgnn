@@ -12,11 +12,11 @@ from tqdm import tqdm
 import torch_geometric.transforms as T
 
 
-pe_transform = T.AddRandomWalkPE(walk_length=10, attr_name='pe')
+pe_transform = T.AddRandomWalkPE(walk_length=5, attr_name='pe')
 
 def to_cuda(batch_g):
     batch_g.x=batch_g.x.cuda()
-    batch_g.pe=batch_g.pe.cuda()
+    #batch_g.pe=batch_g.pe.cuda()
     batch_g.edge_index=batch_g.edge_index.cuda()
     batch_g.edge_attr=batch_g.edge_attr.cuda()
     batch_g.batch=batch_g.batch.cuda()
@@ -114,37 +114,37 @@ def collect_programl_files(root_dir):
 
 def init_nodevector(ir_programl_dir,homoG_save_dir,corpus_model_path,corpus_vec_path,prop_threads,vector_log_file):
 
-    #继续训练
-    #model = FastText.load(corpus_model_path)
+    #继续训练\使用训练好的模型
+    model = FastText.load(corpus_model_path)
     #model.epochs=5
     
     #重头开始  先生成vocab
-    model = FastText(
-    vector_size=64,   
-    window=10,             
-    min_count=1,          
-    epochs=8,            
-    min_n=2,              
-    max_n=6,             
-    word_ngrams=1,
-    workers=prop_threads
-    )
-    #model = Word2Vec(vector_size=64, sg=1,negative=10, window=10, min_count=1, workers=prop_threads,epochs=10,alpha=0.05,min_alpha=0.001,sample=1e-4) #参数需要做进一步实验看最好的效果
-    corpus = BatchProgramlCorpus(collect_programl_files(ir_programl_dir))
-    model.build_vocab(corpus)
-    #model.train(corpus, total_examples=model.corpus_count, epochs=model.epochs)
-    with tqdm(total=model.epochs, desc="Training Progress", unit="epoch") as pbar:
-        for epoch in range(model.epochs):
-            model.train(corpus, total_examples=model.corpus_count, epochs=1) 
-            pbar.update(1)  # 更新进度条
-
-
-    #归一化词向量
-    for word in model.wv.key_to_index:
-        model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
-
-    model.save(corpus_model_path)#.model可以用于继续训练
-    model.wv.save_word2vec_format(corpus_vec_path)
+#    model = FastText(
+#    vector_size=64,   
+#    window=10,             
+#    min_count=1,          
+#    epochs=8,            
+#    min_n=2,              
+#    max_n=6,             
+#    word_ngrams=1,
+#    workers=prop_threads
+#    )
+#    #model = Word2Vec(vector_size=64, sg=1,negative=10, window=10, min_count=1, workers=prop_threads,epochs=10,alpha=0.05,min_alpha=0.001,sample=1e-4) #参数需要做进一步实验看最好的效果
+#    corpus = BatchProgramlCorpus(collect_programl_files(ir_programl_dir))
+#    model.build_vocab(corpus)
+#    #model.train(corpus, total_examples=model.corpus_count, epochs=model.epochs)
+#    with tqdm(total=model.epochs, desc="Training Progress", unit="epoch") as pbar:
+#        for epoch in range(model.epochs):
+#            model.train(corpus, total_examples=model.corpus_count, epochs=1) 
+#            pbar.update(1)  # 更新进度条
+#
+#
+#    #归一化词向量
+#    for word in model.wv.key_to_index:
+#        model.wv[word] = normalize([model.wv[word]], norm='l2')[0]
+#
+#    model.save(corpus_model_path)#.model可以用于继续训练
+#    model.wv.save_word2vec_format(corpus_vec_path)
 
     #为每个图初始化节点向量
     homoG_files=collect_homoG_files(homoG_save_dir)
@@ -182,7 +182,7 @@ def init_nodevector(ir_programl_dir,homoG_save_dir,corpus_model_path,corpus_vec_
         homoG.x= torch.tensor(np.array(inst_features), dtype=torch.float)
         
         #add  pe
-        homoG=pe_transform(homoG)
+        #homoG=pe_transform(homoG)
 
         torch.save(homoG, homoG_file)
 

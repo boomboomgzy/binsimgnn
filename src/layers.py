@@ -25,8 +25,8 @@ class GPS(torch.nn.Module):
                  attn_type: str, attn_kwargs: Dict[str, Any]):
         super().__init__()
 
-        self.pe_lin = Linear(10, pe_dim)
-        self.pe_norm = BatchNorm1d(10)
+        #self.pe_lin = Linear(8, pe_dim)
+        #self.pe_norm = BatchNorm1d(8)
         self.edge_emb = Embedding(215, channels)
 
         self.convs = ModuleList()
@@ -42,11 +42,11 @@ class GPS(torch.nn.Module):
         #redraw_interval==0 每次调用都会重绘
         self.redraw_projection = RedrawProjection(self.convs,redraw_interval=0 if attn_type == 'performer' else None)
     
-    def forward(self, x, pe, edge_index, edge_attr, batch):
+    def forward(self, x, edge_index, edge_attr, batch):
 
 
-        x_pe = self.pe_norm(pe)
-        x = torch.cat((x, self.pe_lin(x_pe)), dim=1)
+        #x_pe = self.pe_norm(pe)
+        #x = torch.cat((x, self.pe_lin(x_pe)), dim=1)
         edge_attr = self.edge_emb(edge_attr)
 
         for conv in self.convs:
