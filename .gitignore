@@ -5,10 +5,9 @@ src/test.py
 src/__pycache__
 ir2vec
 debug_homoG_dataset
-*model
+binkit_small_model
 *copy
 *vocab
-bert_test
 test_record.txt
 zinc
 test_GPS.py
