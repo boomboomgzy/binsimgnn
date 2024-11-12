@@ -21,7 +21,7 @@ from torch_geometric.nn.attention import PerformerAttention
 
 # channel=node_embedding_dim+pe_dim
 class GPS(torch.nn.Module):
-    def __init__(self, channels: int, pe_dim: int, num_layers: int, heads: int, 
+    def __init__(self, channels: int, num_layers: int, heads: int,
                  attn_type: str, attn_kwargs: Dict[str, Any]):
         super().__init__()
 
@@ -39,6 +39,7 @@ class GPS(torch.nn.Module):
             conv = GPSConv(channels, GINEConv(nn), heads=heads,
                            attn_type=attn_type, attn_kwargs=attn_kwargs)
             self.convs.append(conv)
+
         #redraw_interval==0 每次调用都会重绘
         self.redraw_projection = RedrawProjection(self.convs,redraw_interval=0 if attn_type == 'performer' else None)
     
@@ -51,6 +52,7 @@ class GPS(torch.nn.Module):
 
         for conv in self.convs:
             x = conv(x, edge_index, batch, edge_attr=edge_attr)
+
         x = global_add_pool(x, batch)
         return x
 

@@ -1,13 +1,108 @@
-import IR2Vec
 import torch    
 from pathlib import Path
 import torch.nn.functional as F
 from tqdm import tqdm
 import re
 import os
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+def exp_recall_mrr(testset_dir):
+    recall_1_list=[]
+    #recall_5_list=[]
+    #recall_10_list=[]
+    mrr_list=[]
+    vec_list=[]
+##    all 
+#    for vec_file in os.listdir(testset_dir):
+#            vec_file_path=os.path.join(testset_dir,vec_file)
+#            vec_list.append(torch.load(vec_file_path).squeeze(0).numpy())
+##
+    
+##   different optimization pair
+#    opt_list=['O0','Ofast']
+#    for vec_file in os.listdir(testset_dir):
+#            vec_file_path=os.path.join(testset_dir,vec_file)
+#            file_name=os.path.basename(vec_file_path)
+#            match = re.search(r'_(O[0-3sfast]+)_', file_name)
+#            if match:
+#                opt_level = match.group(1)
+#                if opt_level in opt_list:
+#                    vec_list.append(torch.load(vec_file_path).squeeze(0).numpy())
+#            else:
+#                print("optimizetion not found")
+#                return 
+##   
+
+##  different architectures pair
+#    arch_list=['x86_64','mipseb_32']
+#    for vec_file in os.listdir(testset_dir):
+#            vec_file_path=os.path.join(testset_dir,vec_file)
+#            file_name=os.path.basename(vec_file_path)
+#            match = re.search(r'_(x86_(32|64)|arm_(32|64)|(mips|mipseb)_32)_', file_name)
+#            if match:
+#                arch = match.group(1)
+#                if arch in arch_list:
+#                    vec_list.append(torch.load(vec_file_path).squeeze(0).numpy())
+#            else:
+#                print("arch not found")
+#                return 
+##
+
+## different compiler pair
+    compiler_list=['gcc-11.2.0','clang-4.0']
+    for vec_file in os.listdir(testset_dir):
+            vec_file_path=os.path.join(testset_dir,vec_file)
+            file_name=os.path.basename(vec_file_path)
+            match = re.search(r'(gcc-\d+\.\d+\.\d+|clang-\d+\.\d+)', file_name)
+            if match:
+                compiler = match.group(1)
+                if compiler in compiler_list:
+                    vec_list.append(torch.load(vec_file_path).squeeze(0).numpy())
+            else:
+                print("compiler not found")
+                return 
+##
+
+    vec_matrix=np.array(vec_list)
+    simi_matrix=cosine_similarity(vec_matrix)
+  
+    for i in range(simi_matrix.shape[0]):
+        # 排序每行的余弦相似度，索引越小表示越相似
+        similar_indices = np.argsort(simi_matrix[i])[::-1]
+        #top_10_simi=similar_indices[0:10]
+        #top_5_simi=similar_indices[0:5]
+        top_1_simi=similar_indices[0]
+        rank = np.where(similar_indices == i)[0][0]  # 查找 i 的位置
+        mrr_list.append(1/(rank + 1))
 
 
-torch.cuda.set_device(3)
+        if top_1_simi == i:
+            recall_1_list.append(1)
+        else:
+            recall_1_list.append(0)
+        #if i in top_5_simi:
+        #     recall_5_list.append(1)
+        #else:
+        #     recall_5_list.append(0)
+        #if i in top_10_simi:
+        #     recall_10_list.append(1)
+        #else:
+        #     recall_10_list.append(0)
+
+
+    recall_1_average = sum(recall_1_list) / len(recall_1_list)
+    #recall_5_average = sum(recall_5_list) / len(recall_5_list)
+    #recall_10_average = sum(recall_10_list) / len(recall_10_list)
+    avg_mrr=sum(mrr_list) / len(mrr_list)
+    
+    print('avg mrr: ',avg_mrr)
+    print(f'avg recall@1: {recall_1_average}')
+    #print(f'avg recall@5: {recall_5_average}')
+    #print(f'avg recall@10: {recall_10_average}')
+
+
+
 
 def homoG_path2_ll_path(homoG_path):
         parts = list(homoG_path.parts)
@@ -25,29 +120,7 @@ def get_g_label(homoG_path):
 
 
 
-def ir2vec_test(record_file_path):    
-    # 加载测试集
-    test_g_pairs = torch.load('/home/ouyangchao/binsimgnn/binkit_small_homoG_dataset/test.pth')
-    positive_g_pairs = test_g_pairs['positive']
-    negative_g_pairs = test_g_pairs['negative']
-    all_pairs = positive_g_pairs + negative_g_pairs
-
-    record_file=open(record_file_path,'w')
-    for g_pair in tqdm(all_pairs):
-        g_label = 1 if get_g_label(g_pair[0]) == get_g_label(g_pair[1]) else 0
-
-        g1_path = homoG_path2_ll_path(Path(g_pair[0]))
-        g2_path = homoG_path2_ll_path(Path(g_pair[1]))
-        g1_emb = IR2Vec.generateEmbeddings(str(g1_path), "fa", "p")['Program_List']
-        g2_emb = IR2Vec.generateEmbeddings(str(g2_path), "fa", "p")['Program_List']
-        g1_emb = torch.tensor(g1_emb, dtype=torch.float32).cuda()
-        g2_emb = torch.tensor(g2_emb, dtype=torch.float32).cuda()
-        cosine_similarities = F.cosine_similarity(g1_emb.unsqueeze(0), g2_emb.unsqueeze(0))
-
-        record_file.write(f"{g_pair[0]} - {g_pair[1]} ,label = {g_label} : Similarity = {cosine_similarities.item()}\n")
-
-    record_file.close()
 
 if __name__=='__main__':
-    test_record_file_path='/home/ouyangchao/binsimgnn/ir2vec_test_record.txt'
-    ir2vec_test(test_record_file_path)
+    testset_dir=r'/home/ouyangchao/binsimgnn/predit_result'
+    exp_recall_mrr(testset_dir)

@@ -28,8 +28,8 @@ def pca_bin(vec_dir):
 
 
     plt.figure(figsize=(18,12))
-    plt.xlim(X_p[:, 0].min() * 1.1, X_p[:, 0].max() * 1.1)
-    plt.ylim(X_p[:, 1].min() * 1.1, X_p[:, 1].max() * 1.1)
+    plt.xlim(X_p[:, 0].min() * 1.5, X_p[:, 0].max() * 1.5)
+    plt.ylim(X_p[:, 1].min() * 1.5, X_p[:, 1].max() * 1.5)
 
     colors = plt.get_cmap('tab20').colors
 
@@ -37,7 +37,7 @@ def pca_bin(vec_dir):
         plt.scatter(
             X_p[np.array(y) == target_name, 0], 
             X_p[np.array(y) == target_name, 1], 
-            color=c, label=target_name, s=50, alpha=0.7, edgecolors='k'
+            color=c, label=target_name, s=10, alpha=0.7, edgecolors='k'
         )
 
     plt.xlabel('x')

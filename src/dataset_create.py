@@ -433,11 +433,13 @@ if __name__=='__main__':
     else:
         if small_dataset:
             ll_file_dir=os.path.join(save_dir,'binkit_small_IR')
-            homoG_save_dir=os.path.join(save_dir,'binkit_small_homoG')
+            #homoG_save_dir=os.path.join(save_dir,'binkit_small_homoG')
+            homoG_save_dir=os.path.join(save_dir,'binkit_small_homoG_ir2vec')
             prep_log_dir=os.path.join(save_dir,'binkit_small_invalid_IR')
             prep_save_dir=os.path.join(save_dir,'binkit_small_preprocessed_IR')
             ir_programl_dir=os.path.join(save_dir,'binkit_small_ir_programl')
-            homoG_dataset_dir=os.path.join(root,'binkit_small_homoG_dataset')
+            #homoG_dataset_dir=os.path.join(root,'binkit_small_homoG_dataset')
+            homoG_dataset_dir=os.path.join(root,'binkit_small_homoG_dataset_ir2vec')
             edge_type_file_path=os.path.join(save_dir,'binkit_small_homoG_edge_type.json')
         else:         
             print('please choose a dataset')   
@@ -457,10 +459,10 @@ if __name__=='__main__':
 
     #ll2programl(prep_save_dir,ir_programl_dir,homoG_save_dir)
 
-    programl2homoG(ir_programl_dir)
-
-    #保存边类型词典
-    with open(edge_type_file_path, 'w') as file:
-        json.dump(homoG_edge_type_dict, file)
+#    programl2homoG(ir_programl_dir)
+#
+#    #保存边类型词典
+#    with open(edge_type_file_path, 'w') as file:
+#        json.dump(homoG_edge_type_dict, file)
 
     build_dataset(homoG_save_dir,homoG_dataset_dir,dataset_size)

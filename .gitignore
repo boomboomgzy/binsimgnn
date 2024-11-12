@@ -17,3 +17,6 @@ binkit_small_IR.tar
 predit_result
 predit_homoG_binkit_small_testset
 predit-pca.png
+binkit_ir_vec
+binkit_small_homoG_dataset_ir2vec
+experimens_dataset

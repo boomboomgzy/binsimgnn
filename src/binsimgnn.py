@@ -30,10 +30,10 @@ class BinSimGNN(torch.nn.Module):
         """
         attn_kwargs = {'dropout': self.args.dropout}
 
-        self.GPS = GPS(channels=64, pe_dim=0, num_layers=self.args.num_layers, heads=self.args.heads,attn_type=self.args.attn_type,
+        self.GPS = GPS(channels=64, num_layers=self.args.num_layers, heads=self.args.heads,attn_type=self.args.attn_type,
             attn_kwargs=attn_kwargs)
 
-    #如果batch_g2==None  则是在做predit 
+#如果batch_g2==None  则是在做predit 
     def forward(self, batch_g1,batch_g2=None):
         if batch_g2 == None:
             batch_g1=to_cuda(batch_g1)
@@ -45,9 +45,9 @@ class BinSimGNN(torch.nn.Module):
             batch_g1_g_vec=self.GPS(batch_g1.x,batch_g1.edge_index,batch_g1.edge_attr,batch_g1.batch)
             batch_g2_g_vec=self.GPS(batch_g2.x,batch_g2.edge_index,batch_g2.edge_attr,batch_g2.batch)
 
-            cosine_similarities = F.cosine_similarity(batch_g1_g_vec, batch_g2_g_vec, dim=1)
-            
-            return cosine_similarities
+        cosine_similarities = F.cosine_similarity(batch_g1_g_vec, batch_g2_g_vec, dim=1)
+          
+        return cosine_similarities
 
 
 
@@ -183,7 +183,8 @@ class BinSimGNNTrainer(object):
             epoch_loss_sum = 0 #统计这个epoch的总loss
             g_pairs_num = 0
 
-            self.model.GPS.redraw_projection.redraw_projections()
+            self.model.s2t_GPS.redraw_projection.redraw_projections()
+            self.model.t2s_GPS.redraw_projection.redraw_projections()
             
             for batch_index, batch_g_pair in tqdm(enumerate(batches), total=len(batches), desc="Batches"):
                 batch_avg_loss_per_pair = self.process_batch_g_pair(batch_g_pair,mode='train') #得到batch中每对的平均loss
@@ -219,7 +220,13 @@ class BinSimGNNTrainer(object):
         self.model.eval()
 
         if mode =='test':
-            g_pairs=self.test_g_pairs
+            #g_pairs=self.test_g_pairs  
+            
+            #验证集和测试集一起做测试
+            g_pairs={}
+            g_pairs['positive']=self.test_g_pairs['positive']+self.valid_g_pairs['positive']
+            g_pairs['negative']=self.test_g_pairs['negative']+self.valid_g_pairs['negative']
+            
             print("\nFinal evaluation on the test set.")
         elif mode == 'eval':   
             g_pairs=self.valid_g_pairs

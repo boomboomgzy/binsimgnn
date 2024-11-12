@@ -28,15 +28,15 @@ def main():
 #    print(f'test metric: {str(round(metric, 10))}')
 
 #测试
-#    trainer = BinSimGNNTrainer(args)
-#    metric=trainer.score(mode='test')
-#    print(f'test metric: {str(round(metric, 10))}')
+    trainer = BinSimGNNTrainer(args)
+    metric=trainer.score(mode='test')
+    print(f'test metric: {str(round(metric, 10))}')
 
 #推理
-    #先使用测试集做推理
-    predit_homoG_dir=r'/home/ouyangchao/binsimgnn/predit_homoG_binkit_small_testset'
-    predit_result_dir=r'/home/ouyangchao/binsimgnn/predit_result'
-    predit(args,predit_homoG_dir,predit_result_dir)
+#    #使用测试集和验证集 来做实验
+#    predit_homoG_dir=r'/home/ouyangchao/binsimgnn/experimens_dataset/test_homoG'
+#    predit_result_dir=r'/home/ouyangchao/binsimgnn/predit_result'
+#    predit(args,predit_homoG_dir,predit_result_dir)
 
 if __name__ == "__main__":
     main()

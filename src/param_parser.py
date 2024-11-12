@@ -40,7 +40,7 @@ def parameter_parser():
 	                help="一个batch中图对的个数")
 
 
-    parser.add_argument("--attn_type",
+    parser.add_argument("--attn-type",
                         type=str,
                         default='performer',
 	                help="Global attention type such as 'multihead' or 'performer' ")
@@ -73,7 +73,7 @@ def parameter_parser():
 
     return parser.parse_args()
 
-#test 0.4 
+#test 0.4 param
 
 #def parameter_parser():
 #    """
